@@ -1,10 +1,10 @@
 """Human-maintained transport contract. Product policies remain outside these DTOs."""
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DTO(BaseModel):
@@ -219,19 +219,39 @@ class ChangeProposalResponse(DTO):
 
 class FlexibleTaskRequest(DTO):
     title: str
-    deadline: datetime | str | None
+    deadline: date | datetime | None
     deadline_precision: Literal["date", "instant"] | None
     timezone: str
     source_message_id: str
+
+    @model_validator(mode="after")
+    def validate_deadline_precision(self):
+        validate_deadline_pair(self.deadline, self.deadline_precision)
+        return self
 
 
 class FlexibleTask(DTO):
     task_id: str
     version: int
     title: str
-    deadline: datetime | str | None
+    deadline: date | datetime | None
     deadline_precision: Literal["date", "instant"] | None
     timezone: str
+
+    @model_validator(mode="after")
+    def validate_deadline_precision(self):
+        validate_deadline_pair(self.deadline, self.deadline_precision)
+        return self
+
+
+def validate_deadline_pair(deadline: date | datetime | None, precision: str | None) -> None:
+    if deadline is None and precision is None:
+        return
+    if deadline is None or precision is None:
+        raise ValueError("deadline and deadline_precision must be provided together")
+    actual_precision = "instant" if isinstance(deadline, datetime) else "date"
+    if precision != actual_precision:
+        raise ValueError(f"deadline_precision must be {actual_precision} for this deadline value")
 
 
 class FlexibleTaskQueryRequest(DTO):

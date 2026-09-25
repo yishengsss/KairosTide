@@ -33,6 +33,34 @@ def source_files(root: Path):
                     yield path
 
 
+def python_imports(tree: ast.AST, source: Path, root: Path) -> list[str]:
+    """Resolve absolute and relative Python import statements to package names."""
+    package_root = root / "services/api/src"
+    try:
+        parts = list(source.relative_to(package_root).with_suffix("").parts)
+    except ValueError:
+        return []
+    is_package_init = bool(parts and parts[-1] == "__init__")
+    if is_package_init:
+        parts.pop()
+    package_parts = parts if is_package_init else parts[:-1]
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                base = node.module or ""
+            else:
+                # level=1 stays in this package, level=2 ascends one package.
+                anchor_length = max(0, len(package_parts) - (node.level - 1))
+                anchor = package_parts[:anchor_length]
+                base = ".".join((*anchor, *((node.module or "").split(".") if node.module else ())))
+            imports.append(base)
+            imports.extend(f"{base}.{alias.name}" for alias in node.names if base)
+    return imports
+
+
 def legacy_inventory(root: Path) -> dict[str, str]:
     inventory = {}
     for name in LEGACY:
@@ -42,6 +70,8 @@ def legacy_inventory(root: Path) -> dict[str, str]:
         for directory, children, files in os.walk(area, followlinks=False):
             children[:] = [child for child in children if child != ".git"]
             for filename in files:
+                if filename == ".git":
+                    continue
                 path = Path(directory) / filename
                 relative = path.relative_to(root).as_posix()
                 if path.is_symlink():
@@ -77,12 +107,7 @@ def architecture(root: Path) -> list[str]:
             except SyntaxError as exc:
                 errors.append(issue("ARCH-PARSE", path, str(exc), "repair Python syntax"))
                 continue
-            imports = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imports += [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom):
-                    imports.append(node.module or "")
+            imports = python_imports(tree, path, root)
             if "/domain/" in relative:
                 forbidden = ("fastapi", "starlette", "sqlalchemy", "sqlite3", "httpx", "requests", "uvicorn", "kairos.adapters", "kairos.api", "kairos.application")
                 for item in imports:

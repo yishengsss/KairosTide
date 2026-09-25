@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from kairos.api import schemas as s
@@ -23,7 +24,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="Kairos API", version="0.1.0", lifespan=lifespan)
-    router = APIRouter(prefix="/api/v1", responses={501: {"model": s.ErrorResponse}})
+    router = APIRouter(prefix="/api/v1", responses={422: {"model": s.ErrorResponse}, 501: {"model": s.ErrorResponse}})
 
     @app.exception_handler(HTTPException)
     async def http_error(_request: Request, exc: HTTPException) -> JSONResponse:
@@ -33,6 +34,21 @@ def create_app(db_path: str | None = None) -> FastAPI:
             request_id=str(uuid4()),
         )
         return JSONResponse(status_code=exc.status_code, content=error.model_dump())
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        fields: dict[str, str] = {}
+        for error in exc.errors():
+            path_parts = [str(part) for part in error.get("loc", ()) if part not in {"body", "query", "path", "header", "cookie"}]
+            field = ".".join(path_parts) or "request"
+            fields[field] = error.get("msg", "Invalid value")
+        error = s.ErrorResponse(
+            code="VALIDATION_ERROR",
+            message="Request validation failed",
+            request_id=str(uuid4()),
+            field_errors=fields,
+        )
+        return JSONResponse(status_code=422, content=error.model_dump())
 
     @router.get("/health", response_model=s.HealthResponse)
     def health() -> s.HealthResponse:
