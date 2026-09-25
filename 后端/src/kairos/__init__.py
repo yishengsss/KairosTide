@@ -1,0 +1,1 @@
+"""Kairos fixed-event service."""
