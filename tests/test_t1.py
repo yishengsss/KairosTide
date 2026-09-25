@@ -69,6 +69,21 @@ class ContractTests(unittest.TestCase):
             self.assertIn("ARCH-DOMAIN", output)
             self.assertIn("kairos.api", output)
 
+    def test_relative_import_within_domain_is_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "services/api/src/kairos/domain"
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("")
+            (package / "events.py").write_text("from . import time_rules\n")
+            (package / "time_rules.py").write_text("def valid():\n    return True\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/check.py"), "architecture", "--root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_invalid_request_uses_unified_error_contract(self):
         from fastapi.testclient import TestClient
         from kairos.main import create_app

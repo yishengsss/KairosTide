@@ -124,9 +124,13 @@ def architecture(root: Path) -> list[str]:
                         target = root / "services/api/src" / item.replace(".", "/") / "__init__.py"
                     if target.exists():
                         target_relative = target.relative_to(root).as_posix()
-                        if "/domain/" in relative and any(f"/{layer}/" in target_relative for layer in ("api", "application", "adapters")):
+                        try:
+                            target_layer = target.relative_to(root / "services/api/src/kairos").parts[0]
+                        except (ValueError, IndexError):
+                            target_layer = ""
+                        if "/domain/" in relative and target_layer in {"api", "application", "adapters"}:
                             errors.append(issue("ARCH-EDGE", path, f"{relative} -> {target_relative}", "invert this dependency through a domain-owned interface"))
-                        if "/application/" in relative and "/adapters/" in target_relative:
+                        if "/application/" in relative and target_layer == "adapters":
                             errors.append(issue("ARCH-EDGE", path, f"{relative} -> {target_relative}", "inject the adapter at the composition root"))
         if relative.startswith("apps/web/src/") and path.suffix in {".ts", ".tsx", ".vue"}:
             if re.search(r"from\s*['\"][^'\"]*(services/api|XiAnHacker)", content):
