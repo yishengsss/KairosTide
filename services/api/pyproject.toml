@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kairos-api"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi==0.115.12", "uvicorn==0.34.2", "pydantic==2.11.4"]
+
+[project.optional-dependencies]
+test = ["httpx==0.28.1", "pytest==8.3.5"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kairos"]
