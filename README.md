@@ -1,4 +1,5 @@
-# KairosTide‑NotimerDay
+# KairosTide‑一块不显示刻度时间的潮汐钟 —— 找回「时间之流」
+
 > Time as the rhythm of the opportune, not the measure of the clock.
 > 
 > **不问几点，只问何时。**
