@@ -1,4 +1,4 @@
-# KairosTide‑一块不显示刻度时间的潮汐钟         —— 找回「时间之流」
+# KairosTide‑一块不显示刻度时间的潮汐钟
 
 > Time as the rhythm of the opportune, not the measure of the clock.
 > 
