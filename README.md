@@ -1,6 +1,6 @@
 # KairosTide‑NotimerDay
 > Time as the rhythm of the opportune, not the measure of the clock.
-
+> **不问几点，只问何时。**
 > **时间是时机的节律，而非钟表的度量。**
 
 ## 1. 项目概述
