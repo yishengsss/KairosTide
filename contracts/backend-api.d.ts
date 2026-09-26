@@ -1437,6 +1437,7 @@ export interface operations {
             query: {
                 from: string;
                 to: string;
+                cursor?: string | null;
             };
             header?: never;
             path?: never;

@@ -2461,6 +2461,7 @@
             "name": "from",
             "required": true,
             "schema": {
+              "format": "date-time",
               "title": "From",
               "type": "string"
             }
@@ -2470,8 +2471,25 @@
             "name": "to",
             "required": true,
             "schema": {
+              "format": "date-time",
               "title": "To",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           }
         ],
