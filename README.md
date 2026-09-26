@@ -1,4 +1,7 @@
 # KairosTide‑找回「时间之流」，重新栖居在时间里
+
+![Uploading ChatGPT 图像 2026年9月27日 00_59_05.png…]()
+
 > Time as the rhythm of the opportune, not the measure of the clock.
 >
 > **时间是时机的节律，而非钟表的度量。**
