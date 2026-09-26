@@ -84,6 +84,9 @@ class Reminder(DTO):
     version: int
     schedule_revision: int
     acknowledged_at: datetime | None
+    event_title: str
+    location: str | None
+    minutes_until_start: int = Field(ge=0, le=5)
 
 
 class Conflict(DTO):
@@ -100,6 +103,14 @@ class StateResponse(DTO):
     due_reminders: list[Reminder]
     conflicts: list[Conflict]
     next_transition_at: datetime | None
+
+
+class ReminderAckResponse(DTO):
+    reminder_id: str
+    occurrence_id: str
+    version: int
+    schedule_revision: int
+    acknowledged_at: datetime
 
 
 class ReminderAckRequest(DTO):

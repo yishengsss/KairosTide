@@ -180,6 +180,77 @@ class SqliteRepository:
         with self._connect() as connection:
             return self._occurrences_in(connection, owner_id, start, end)
 
+    def ensure_reminder(self, owner_id: str, occurrence: Occurrence, now: datetime) -> dict:
+        reminder_id = f"rem_{uuid5(NAMESPACE_URL, f'kairos/reminder/{owner_id}/{occurrence.occurrence_id}/{occurrence.schedule_revision}').hex}"
+        with self._connect() as connection:
+            connection.execute("""INSERT OR IGNORE INTO reminders
+                (reminder_id, owner_id, occurrence_id, occurrence_version, schedule_revision)
+                VALUES (?, ?, ?, ?, ?)""", (reminder_id, owner_id, occurrence.occurrence_id,
+                                                occurrence.version, occurrence.schedule_revision))
+            row = connection.execute("""SELECT r.*, o.version AS current_version, o.schedule_revision AS current_schedule,
+                e.title, e.location, o.start_at FROM reminders r JOIN occurrences o ON o.occurrence_id = r.occurrence_id
+                JOIN events e ON e.event_id = o.event_id WHERE r.owner_id = ? AND r.reminder_id = ?""",
+                (owner_id, reminder_id)).fetchone()
+            if row is None or row["current_version"] != row["occurrence_version"] or row["current_schedule"] != row["schedule_revision"]:
+                if row is not None:
+                    connection.execute("UPDATE reminders SET acknowledged_at = ? WHERE reminder_id = ? AND acknowledged_at IS NULL",
+                                       (_iso(now), reminder_id))
+                return None
+            start = datetime.fromisoformat(row["start_at"])
+            minutes = max(0, int((start - now).total_seconds() // 60))
+            return {"reminder_id": row["reminder_id"], "occurrence_id": row["occurrence_id"],
+                    "version": row["occurrence_version"], "schedule_revision": row["schedule_revision"],
+                    "acknowledged_at": datetime.fromisoformat(row["acknowledged_at"]) if row["acknowledged_at"] else None,
+                    "event_title": row["title"], "location": row["location"], "minutes_until_start": minutes}
+
+    def acknowledge_reminder(self, owner_id: str, reminder_id: str, expected_version: int,
+                             schedule_revision: int, idempotency_key: str, now: datetime) -> dict:
+        request_hash = _hash([reminder_id, expected_version, schedule_revision])
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = self._idempotent(connection, owner_id, "reminder_ack", idempotency_key, request_hash)
+            if previous is not None:
+                return previous
+            row = connection.execute("""SELECT r.*, o.version AS current_version, o.schedule_revision AS current_schedule
+                FROM reminders r JOIN occurrences o ON o.occurrence_id = r.occurrence_id
+                WHERE r.owner_id = ? AND r.reminder_id = ?""", (owner_id, reminder_id)).fetchone()
+            if row is None:
+                raise KeyError(reminder_id)
+            if (row["occurrence_version"] != expected_version or row["schedule_revision"] != schedule_revision
+                or row["current_version"] != expected_version or row["current_schedule"] != schedule_revision):
+                raise ValueError("reminder schedule changed")
+            if row["acknowledged_at"] is None:
+                connection.execute("UPDATE reminders SET acknowledged_at = ? WHERE owner_id = ? AND reminder_id = ?",
+                                   (_iso(now), owner_id, reminder_id))
+                connection.execute("INSERT INTO operation_audit (owner_id, operation, subject_id, source_action_id, occurred_at) VALUES (?, ?, ?, ?, ?)",
+                                   (owner_id, "reminder_ack", row["occurrence_id"], reminder_id, _iso(now)))
+            result = {"reminder_id": reminder_id, "occurrence_id": row["occurrence_id"], "version": expected_version,
+                      "schedule_revision": schedule_revision, "acknowledged_at": _iso(now)}
+            self._save_idempotent(connection, owner_id, "reminder_ack", idempotency_key, request_hash, result)
+            return result
+
+    def list_active_reminders(self, owner_id: str, now: datetime) -> list[dict]:
+        with self._connect() as connection:
+            # Materialize the occurrence window first so all recurring instances in
+            # the five-minute horizon have stable IDs before reminder selection.
+            self._occurrences_in(connection, owner_id, now, now + timedelta(days=1))
+            rows = connection.execute("""SELECT r.*, o.version AS current_version, o.schedule_revision AS current_schedule,
+                e.title, e.location, o.start_at FROM reminders r JOIN occurrences o ON o.occurrence_id = r.occurrence_id
+                JOIN events e ON e.event_id = o.event_id WHERE r.owner_id = ? AND r.acknowledged_at IS NULL""", (owner_id,)).fetchall()
+            result = []
+            for row in rows:
+                if row["current_version"] != row["occurrence_version"] or row["current_schedule"] != row["schedule_revision"]:
+                    connection.execute("UPDATE reminders SET acknowledged_at = ? WHERE reminder_id = ? AND acknowledged_at IS NULL",
+                                       (_iso(now), row["reminder_id"]))
+                    continue
+                start = datetime.fromisoformat(row["start_at"])
+                if timedelta(0) < start - now <= timedelta(minutes=5):
+                    result.append({"reminder_id": row["reminder_id"], "occurrence_id": row["occurrence_id"],
+                        "version": row["occurrence_version"], "schedule_revision": row["schedule_revision"],
+                        "acknowledged_at": None, "event_title": row["title"], "location": row["location"],
+                        "minutes_until_start": max(0, int((start - now).total_seconds() // 60))})
+            return result
+
     @staticmethod
     def _idempotent(connection: sqlite3.Connection, owner: str, operation: str, key: str, request_hash: str):
         row = connection.execute("SELECT request_hash, result_json FROM idempotency WHERE owner_id = ? AND operation = ? AND key = ?",

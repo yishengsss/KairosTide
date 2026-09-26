@@ -722,6 +722,12 @@ export interface components {
         Reminder: {
             /** Acknowledged At */
             acknowledged_at: string | null;
+            /** Event Title */
+            event_title: string;
+            /** Location */
+            location: string | null;
+            /** Minutes Until Start */
+            minutes_until_start: number;
             /** Occurrence Id */
             occurrence_id: string;
             /** Reminder Id */
@@ -737,6 +743,22 @@ export interface components {
             expected_version: number;
             /** Schedule Revision */
             schedule_revision: number;
+        };
+        /** ReminderAckResponse */
+        ReminderAckResponse: {
+            /**
+             * Acknowledged At
+             * Format: date-time
+             */
+            acknowledged_at: string;
+            /** Occurrence Id */
+            occurrence_id: string;
+            /** Reminder Id */
+            reminder_id: string;
+            /** Schedule Revision */
+            schedule_revision: number;
+            /** Version */
+            version: number;
         };
         /** StateResponse */
         StateResponse: {
@@ -1520,7 +1542,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Reminder"];
+                    "application/json": components["schemas"]["ReminderAckResponse"];
                 };
             };
             /** @description Unprocessable Entity */

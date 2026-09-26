@@ -5,12 +5,29 @@ import { RealClock } from './platform/clocks.ts'
 import { SceneEnvironmentSession } from './scene/session.ts'
 import AssistantPanel from './assistant/AssistantPanel.vue'
 import { assistantSession } from './assistant/sessionStore.ts'
+import ReminderLayer from './presentation/ReminderLayer.vue'
 
 const connection = ref<'checking' | 'connected' | 'failed'>('checking')
 const realClock = new RealClock()
 const environment = new SceneEnvironmentSession(realClock)
 const frame = shallowRef(environment.frame)
 let refreshTimer = 0
+let stateTimer = 0
+
+assistantSession.setCommands({
+  getState: async () => {
+    const response = await fetch('/api/v1/state', { cache: 'no-store' })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json()
+  },
+  acknowledgeReminder: async (reminder, idempotencyKey) => {
+    const response = await fetch(`/api/v1/reminders/${encodeURIComponent(reminder.reminder_id)}/ack`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ expected_version: reminder.version, schedule_revision: reminder.schedule_revision }),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  },
+})
 
 async function checkConnection() {
   connection.value = 'checking'
@@ -29,18 +46,23 @@ function refreshEnvironment() {
   frame.value = environment.refresh()
 }
 
+function refreshState() { void assistantSession.refreshState() }
+
 onMounted(() => {
   void checkConnection()
+  refreshState()
+  stateTimer = window.setInterval(refreshState, 15_000)
   refreshTimer = window.setInterval(refreshEnvironment, 30_000)
 })
 
-onUnmounted(() => window.clearInterval(refreshTimer))
+onUnmounted(() => { window.clearInterval(refreshTimer); window.clearInterval(stateTimer) })
 </script>
 
 <template>
   <main class="app-shell" aria-label="Kairos 自然场景">
     <NatureScene class="scene-backdrop" :frame="frame" />
     <div class="scene-vignette" aria-hidden="true"></div>
+    <ReminderLayer :reminder="assistantSession.state.reminder" :assistant-open="assistantSession.state.open" :pending="assistantSession.state.pending === 'confirming'" @acknowledge="assistantSession.acknowledgeReminder" />
     <div v-if="connection === 'failed'" class="connection-error" role="status">
       <span>助手暂时离线</span>
       <button type="button" aria-label="重试连接助手服务" @click="checkConnection">重试</button>

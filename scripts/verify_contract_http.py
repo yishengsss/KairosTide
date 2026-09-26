@@ -1,4 +1,4 @@
-"""Exercise the T1 HTTP shell in an isolated new SQLite database."""
+"""Exercise the health and state HTTP contracts in an isolated database."""
 
 import json
 import sys
@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services/api/src"))
 
-from kairos.api.schemas import ErrorResponse  # noqa: E402
+from kairos.api.schemas import ErrorResponse, StateResponse  # noqa: E402
 from kairos.main import create_app  # noqa: E402
 
 
@@ -26,10 +26,15 @@ def main(openapi_file: Path) -> int:
                 print("FAIL K01-HTTP: new runtime health failed")
                 return 1
             state = client.get("/api/v1/state")
-            if state.status_code != 501:
-                print("FAIL K15-HTTP: unimplemented state must return 501")
+            if state.status_code != 200:
+                print("FAIL K15-HTTP: state query failed")
                 return 1
-            ErrorResponse.model_validate(state.json())
+            StateResponse.model_validate(state.json())
+            unimplemented = client.get("/api/v1/events")
+            if unimplemented.status_code != 501:
+                print("FAIL K15-HTTP: unimplemented events route must return 501")
+                return 1
+            ErrorResponse.model_validate(unimplemented.json())
     return 0
 
 

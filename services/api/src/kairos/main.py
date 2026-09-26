@@ -11,10 +11,18 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from kairos.api import schemas as s
+from kairos.adapters.clock import SystemClock
+from kairos.adapters.persistence.sqlite import SqliteRepository
+from kairos.application.reminders import ReminderService, ReminderConflict
+from kairos.application.state import StateService
 
 
-def create_app(db_path: str | None = None) -> FastAPI:
+def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None = None) -> FastAPI:
     path = Path(db_path or os.environ.get("KAIROS_DB_PATH", "var/kairos.sqlite3"))
+    trusted_owner_id = owner_id or os.environ.get("KAIROS_LOCAL_OWNER_ID", "local")
+    runtime_clock = clock or SystemClock()
+    repository = SqliteRepository(path)
+    reminder_service = ReminderService(repository, runtime_clock)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -61,7 +69,14 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     @router.get("/state", response_model=s.StateResponse)
     def state() -> s.StateResponse:
-        unavailable()
+        snapshot = StateService(repository, runtime_clock, reminder_service).snapshot(trusted_owner_id)
+        active = [s.Occurrence(occurrence_id=item.occurrence_id, event_id=item.event_id, version=item.version,
+            title=item.title, location=item.location, temporal_phase="active", disposition=item.disposition,
+            start_at=item.start_at, end_at=item.end_at) for item in snapshot.active_occurrences]
+        due = [s.Reminder(**item) for item in snapshot.due_reminders]
+        next_transition = min((item.end_at for item in snapshot.active_occurrences), default=None)
+        return s.StateResponse(server_now=snapshot.server_now, state_revision=1, active_occurrences=active,
+            due_reminders=due, conflicts=[], next_transition_at=next_transition)
 
     @router.get("/events", response_model=s.EventPage)
     def events(cursor: str | None = None) -> s.EventPage:
@@ -71,9 +86,16 @@ def create_app(db_path: str | None = None) -> FastAPI:
     def occurrences(from_at: str = Query(alias="from"), to_at: str = Query(alias="to")) -> s.OccurrencePage:
         unavailable()
 
-    @router.post("/reminders/{reminder_id}/ack", response_model=s.Reminder)
+    @router.post("/reminders/{reminder_id}/ack", response_model=s.ReminderAckResponse)
     def ack(reminder_id: str, body: s.ReminderAckRequest, idempotency_key: str = Header(alias="Idempotency-Key")) -> s.Reminder:
-        unavailable()
+        try:
+            result = reminder_service.acknowledge(trusted_owner_id, reminder_id, body.expected_version,
+                                                  body.schedule_revision, idempotency_key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        except ReminderConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return s.ReminderAckResponse(**result)
 
     @router.post("/conflict-decisions", response_model=s.ConflictDecisionResponse)
     def decide_conflict(body: s.ConflictDecisionRequest, idempotency_key: str = Header(alias="Idempotency-Key")) -> s.ConflictDecisionResponse:

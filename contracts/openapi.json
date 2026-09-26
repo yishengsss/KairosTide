@@ -1296,6 +1296,84 @@
             ],
             "title": "Acknowledged At"
           },
+          "event_title": {
+            "title": "Event Title",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "minutes_until_start": {
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Minutes Until Start",
+            "type": "integer"
+          },
+          "occurrence_id": {
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "reminder_id": {
+            "title": "Reminder Id",
+            "type": "string"
+          },
+          "schedule_revision": {
+            "title": "Schedule Revision",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reminder_id",
+          "occurrence_id",
+          "version",
+          "schedule_revision",
+          "acknowledged_at",
+          "event_title",
+          "location",
+          "minutes_until_start"
+        ],
+        "title": "Reminder",
+        "type": "object"
+      },
+      "ReminderAckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "schedule_revision": {
+            "title": "Schedule Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version",
+          "schedule_revision"
+        ],
+        "title": "ReminderAckRequest",
+        "type": "object"
+      },
+      "ReminderAckResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledged_at": {
+            "format": "date-time",
+            "title": "Acknowledged At",
+            "type": "string"
+          },
           "occurrence_id": {
             "title": "Occurrence Id",
             "type": "string"
@@ -1320,26 +1398,7 @@
           "schedule_revision",
           "acknowledged_at"
         ],
-        "title": "Reminder",
-        "type": "object"
-      },
-      "ReminderAckRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "expected_version": {
-            "title": "Expected Version",
-            "type": "integer"
-          },
-          "schedule_revision": {
-            "title": "Schedule Revision",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "expected_version",
-          "schedule_revision"
-        ],
-        "title": "ReminderAckRequest",
+        "title": "ReminderAckResponse",
         "type": "object"
       },
       "StateResponse": {
@@ -2557,7 +2616,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Reminder"
+                  "$ref": "#/components/schemas/ReminderAckResponse"
                 }
               }
             },

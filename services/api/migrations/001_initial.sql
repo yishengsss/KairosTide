@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS occurrences (
 );
 CREATE INDEX IF NOT EXISTS idx_occurrences_window ON occurrences(owner_id, start_at, end_at);
 
+CREATE TABLE IF NOT EXISTS reminders (
+  reminder_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  occurrence_id TEXT NOT NULL REFERENCES occurrences(occurrence_id),
+  occurrence_version INTEGER NOT NULL,
+  schedule_revision INTEGER NOT NULL,
+  acknowledged_at TEXT,
+  UNIQUE(owner_id, occurrence_id, schedule_revision)
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_owner ON reminders(owner_id, acknowledged_at);
+
 CREATE TABLE IF NOT EXISTS idempotency (
   owner_id TEXT NOT NULL,
   operation TEXT NOT NULL,

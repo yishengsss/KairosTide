@@ -13,7 +13,11 @@ export interface AssistantReply {
 export interface AssistantCommands {
   sendMessage?: (text: string, clientMessageId: string) => Promise<AssistantReply>
   confirmDraft?: (draftId: string, request: DraftCommitRequest, idempotencyKey: string) => Promise<DraftCommitResponse>
+  acknowledgeReminder?: (reminder: Reminder, idempotencyKey: string) => Promise<void>
+  getState?: () => Promise<components['schemas']['StateResponse']>
 }
+
+export type Reminder = components['schemas']['Reminder']
 
 export interface AssistantMessage {
   role: 'user' | 'assistant'
@@ -32,7 +36,10 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}) 
     pending: null as 'sending' | 'confirming' | null,
     error: '',
     activeNotice: '',
+    reminder: null as Reminder | null,
+    notice: '',
   })
+  const dismissedReminders = new Set<string>()
 
   function setCommands(next: AssistantCommands) { commands = next }
   function open() { state.open = true }
@@ -47,6 +54,43 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}) 
   }
   function setActiveNotice(text: string) { state.activeNotice = text }
   function clearError() { state.error = '' }
+  function setReminder(reminder: Reminder | null) {
+    if (!reminder || reminder.acknowledged_at || dismissedReminders.has(reminder.reminder_id)) {
+      if (state.reminder?.reminder_id === reminder?.reminder_id || !reminder) state.reminder = null
+      return
+    }
+    state.reminder = reminder
+  }
+
+  async function acknowledgeReminder(): Promise<boolean> {
+    const reminder = state.reminder
+    if (!reminder) return false
+    state.reminder = null
+    dismissedReminders.add(reminder.reminder_id)
+    try {
+      if (!commands.acknowledgeReminder) throw new Error('service unavailable')
+      await commands.acknowledgeReminder(reminder, globalThis.crypto.randomUUID())
+      return true
+    } catch {
+      state.notice = '提醒已关闭，未能向服务端确认，稍后同步。'
+      return true
+    }
+  }
+
+  async function refreshState(): Promise<void> {
+    if (!commands.getState) return
+    try {
+      const snapshot = await commands.getState()
+      const candidates = snapshot.due_reminders.filter(item => !dismissedReminders.has(item.reminder_id))
+      setReminder(candidates[0] ?? null)
+      if (snapshot.active_occurrences.length > 0 && !state.open) {
+        const active = snapshot.active_occurrences[0]
+        state.activeNotice = `正在进行：${active.title}${active.location ? ` · ${active.location}` : ''}`
+      }
+    } catch {
+      // Keep any visible reminder and active notice stable until the next sync.
+    }
+  }
 
   async function sendMessage(): Promise<boolean> {
     const text = state.input.trim()
@@ -111,7 +155,8 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}) 
     }
   }
 
-  return { state, setCommands, open, close, setInput, setDraft, setActiveNotice, clearError, sendMessage, confirmDraft }
+  return { state, setCommands, open, close, setInput, setDraft, setActiveNotice, clearError, setReminder, refreshState,
+    acknowledgeReminder, sendMessage, confirmDraft }
 }
 
 export const assistantSession = createAssistantSession()

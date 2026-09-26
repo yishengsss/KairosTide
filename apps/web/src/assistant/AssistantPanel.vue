@@ -54,6 +54,10 @@ function returnToScene() {
           <span>{{ session.state.activeNotice }}</span>
           <ActionButton quiet @click="returnToScene">回到场景</ActionButton>
         </div>
+        <div v-if="session.state.notice" class="assistant-notice" role="status">
+          <span>{{ session.state.notice }}</span>
+          <ActionButton quiet aria-label="关闭提醒同步状态" @click="session.state.notice = ''">关闭</ActionButton>
+        </div>
         <div class="assistant-scroll" role="region" aria-labelledby="kairos-assistant-title">
           <Conversation :messages="session.state.messages" />
           <DraftReview v-if="session.state.draft" :draft="session.state.draft" :pending="session.state.pending === 'confirming'" @confirm="session.confirmDraft" />

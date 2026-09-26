@@ -107,3 +107,28 @@ test('commit failure keeps draft ready and offers retry without false success', 
   assert.ok(keys[0])
   assert.equal(keys[0], keys[1])
 })
+
+test('five-minute reminder can be dismissed immediately and is never re-shown in the same session', async () => {
+  let acknowledged
+  const session = createAssistantSession({
+    acknowledgeReminder: async (reminder) => { acknowledged = reminder.reminder_id },
+  })
+  const reminder = { reminder_id: 'rem-1', occurrence_id: 'occ-1', version: 1, schedule_revision: 1,
+    acknowledged_at: null, event_title: '软件工程课', location: '教学楼A', minutes_until_start: 5 }
+  session.setReminder(reminder)
+  assert.equal(session.state.reminder.reminder_id, 'rem-1')
+  assert.equal(await session.acknowledgeReminder(), true)
+  assert.equal(acknowledged, 'rem-1')
+  assert.equal(session.state.reminder, null)
+  session.setReminder(reminder)
+  assert.equal(session.state.reminder, null)
+})
+
+test('reminder acknowledgment failure still dismisses locally and never restores a blocking prompt', async () => {
+  const session = createAssistantSession({ acknowledgeReminder: async () => { throw new Error('offline') } })
+  session.setReminder({ reminder_id: 'rem-2', occurrence_id: 'occ-2', version: 1, schedule_revision: 1,
+    acknowledged_at: null, event_title: '课程', location: null, minutes_until_start: 4 })
+  assert.equal(await session.acknowledgeReminder(), true)
+  assert.equal(session.state.reminder, null)
+  assert.match(session.state.notice, /稍后同步/)
+})

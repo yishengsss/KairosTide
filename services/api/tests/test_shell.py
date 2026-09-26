@@ -14,9 +14,12 @@ def test_health_uses_new_temporary_database(tmp_path: Path) -> None:
     assert database.is_file()
 
 
-def test_unimplemented_business_route_returns_contract_error(tmp_path: Path) -> None:
+def test_state_route_is_implemented_and_unimplemented_routes_return_contract_error(tmp_path: Path) -> None:
     with TestClient(create_app(str(tmp_path / "new.sqlite3"))) as client:
-        response = client.get("/api/v1/state")
+        state = client.get("/api/v1/state")
+        response = client.get("/api/v1/events")
+    assert state.status_code == 200
+    assert state.json()["due_reminders"] == []
     assert response.status_code == 501
     payload = response.json()
     assert payload["code"] == "NOT_IMPLEMENTED"

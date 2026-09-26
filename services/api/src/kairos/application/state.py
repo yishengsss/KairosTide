@@ -15,15 +15,18 @@ class StateSnapshot:
     server_now: datetime
     active_occurrences: tuple[Occurrence, ...]
     conflict_pairs: tuple[tuple[str, str], ...]
+    due_reminders: tuple[dict, ...] = ()
 
 
 class StateService:
-    def __init__(self, repository, clock: Clock) -> None:
+    def __init__(self, repository, clock: Clock, reminder_service=None) -> None:
         self.repository = repository
         self.clock = clock
+        self.reminder_service = reminder_service
 
     def snapshot(self, owner_id: str) -> StateSnapshot:
         now = self.clock.now()
         occurrences = self.repository.list_occurrences(owner_id, now - timedelta(days=1), now + timedelta(days=1))
         active = tuple(item for item in occurrences if item.disposition == "scheduled" and temporal_phase(item, now) == "active")
-        return StateSnapshot(now, active, pairs(active, ()))
+        due = self.reminder_service.due(owner_id) if self.reminder_service else ()
+        return StateSnapshot(now, active, pairs(active, ()), due)
