@@ -1,6 +1,7 @@
 """T1 boundary and empty-runtime contract checks."""
 
 import json
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -83,6 +84,12 @@ class ContractTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_check_command_resolves_executables_from_path(self):
+        spec = importlib.util.spec_from_file_location("kairos_check", ROOT / "scripts/check.py")
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+        self.assertEqual(checker.command_check(["python3", "-c", "pass"], ROOT), [])
 
     def test_invalid_request_uses_unified_error_contract(self):
         from fastapi.testclient import TestClient

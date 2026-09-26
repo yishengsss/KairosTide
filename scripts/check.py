@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -244,7 +245,9 @@ def contracts(root: Path) -> list[str]:
 
 
 def command_check(command: list[str], cwd: Path) -> list[str]:
-    if not Path(command[0]).exists():
+    executable = Path(command[0])
+    found = executable if executable.is_absolute() or executable.parent != Path(".") else Path(shutil.which(command[0]) or "")
+    if not found.exists():
         return [f"BLOCKED {' '.join(command)}: executable missing"]
     result = subprocess.run(command, cwd=cwd)
     return [] if result.returncode == 0 else [f"FAIL {' '.join(command)}: exit {result.returncode}"]
@@ -272,6 +275,7 @@ def main() -> int:
         elif scope == "api":
             errors += command_check([str(root / "services/api/.venv/bin/python"), "-m", "pytest", "-q", "services/api/tests", "tests/test_t1.py"], root)
         elif scope == "web":
+            errors += command_check(["npm", "test", "--prefix", str(root / "apps/web")], root)
             errors += command_check([str(root / "apps/web/node_modules/.bin/vue-tsc"), "--noEmit"], root / "apps/web")
             errors += command_check([str(root / "apps/web/node_modules/.bin/vite"), "build"], root / "apps/web")
         else:

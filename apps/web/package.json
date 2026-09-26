@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --test"
   },
   "dependencies": {
     "vue": "3.5.13"

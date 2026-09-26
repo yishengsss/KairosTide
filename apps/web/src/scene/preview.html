@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kairos 场景夹具预览</title>
+  </head>
+  <body>
+    <div id="scene-preview"></div>
+    <fieldset class="fixture-controls">
+      <legend>场景夹具预览 · 合成天气</legend>
+      <label>时刻 <input id="fixture-time" type="time" value="15:00" /></label>
+      <label>天气
+        <select id="fixture-weather">
+          <option value="clear">晴</option>
+          <option value="partly_cloudy">多云</option>
+          <option value="overcast">阴</option>
+          <option value="rain">雨</option>
+          <option value="fog">雾</option>
+          <option value="snow">雪</option>
+          <option value="unknown">未知</option>
+        </select>
+      </label>
+    </fieldset>
+    <script type="module" src="./preview.ts"></script>
+    <style>
+      html, body, #scene-preview { margin: 0; width: 100%; height: 100%; min-height: 100dvh; }
+      body { font: 100%/1.4 system-ui, sans-serif; }
+      .fixture-controls { position: fixed; z-index: 5; left: max(1rem, env(safe-area-inset-left)); bottom: max(1rem, env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; max-width: calc(100vw - 2rem); color: #f6faf9; background: #142c3bd9; border: 1px solid #cce0e266; border-radius: 1rem; padding: .8rem 1rem; backdrop-filter: blur(16px); }
+      .fixture-controls legend { padding: 0 .4rem; font-size: .8rem; }
+      .fixture-controls label { display: flex; align-items: center; gap: .5rem; }
+      .fixture-controls input, .fixture-controls select { font: inherit; border-radius: .5rem; min-height: 2.75rem; border: 1px solid #abc5cc; background: #f6faf9; color: #172e39; padding: 0 .5rem; }
+      .fixture-controls :focus-visible { outline: 3px solid #ffecae; outline-offset: 2px; }
+    </style>
+  </body>
+</html>
