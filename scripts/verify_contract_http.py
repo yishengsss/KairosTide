@@ -30,7 +30,7 @@ def main(openapi_file: Path) -> int:
                 print("FAIL K15-HTTP: state query failed")
                 return 1
             StateResponse.model_validate(state.json())
-            unimplemented = client.get("/api/v1/events")
+            unimplemented = client.get("/api/v1/weather", params={"location_id": "home"})
             if unimplemented.status_code != 501:
                 print("FAIL K15-HTTP: unimplemented events route must return 501")
                 return 1

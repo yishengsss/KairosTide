@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -15,6 +16,7 @@ from kairos.adapters.clock import SystemClock
 from kairos.adapters.persistence.sqlite import SqliteRepository
 from kairos.application.reminders import ReminderService, ReminderConflict
 from kairos.application.state import StateService
+from kairos.domain.state import temporal_phase
 
 
 def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None = None) -> FastAPI:
@@ -80,11 +82,28 @@ def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None =
 
     @router.get("/events", response_model=s.EventPage)
     def events(cursor: str | None = None) -> s.EventPage:
-        unavailable()
+        offset = _decode_cursor(cursor)
+        all_events = repository.list_events(trusted_owner_id)
+        page = all_events[offset:offset + 50]
+        items = [s.Event(event_id=item.event_id, version=item.version, title=item.title, location=item.location,
+            start_at=item.start_at, end_at=item.end_at, recurrence=_recurrence_dto(item.recurrence, item.timezone)) for item in page]
+        next_cursor = _encode_cursor(offset + 50) if offset + 50 < len(all_events) else None
+        return s.EventPage(items=items, next_cursor=next_cursor)
 
     @router.get("/occurrences", response_model=s.OccurrencePage)
-    def occurrences(from_at: str = Query(alias="from"), to_at: str = Query(alias="to")) -> s.OccurrencePage:
-        unavailable()
+    def occurrences(from_at: datetime = Query(alias="from"), to_at: datetime = Query(alias="to"), cursor: str | None = None) -> s.OccurrencePage:
+        if from_at.tzinfo is None or to_at.tzinfo is None or to_at <= from_at or to_at - from_at > timedelta(days=62):
+            raise HTTPException(status_code=422, detail="Query window must be aware, ordered, and no wider than 62 days")
+        now = runtime_clock.now()
+        items = repository.list_occurrences(trusted_owner_id, from_at, to_at)
+        visible = [item for item in items if item.disposition == "scheduled"]
+        offset = _decode_cursor(cursor)
+        page = visible[offset:offset + 100]
+        results = [s.Occurrence(occurrence_id=item.occurrence_id, event_id=item.event_id, version=item.version,
+            title=item.title, location=item.location, temporal_phase=temporal_phase(item, now),
+            disposition=item.disposition, start_at=item.start_at, end_at=item.end_at) for item in page]
+        next_cursor = _encode_cursor(offset + 100) if offset + 100 < len(visible) else None
+        return s.OccurrencePage(items=results, next_cursor=next_cursor)
 
     @router.post("/reminders/{reminder_id}/ack", response_model=s.ReminderAckResponse)
     def ack(reminder_id: str, body: s.ReminderAckRequest, idempotency_key: str = Header(alias="Idempotency-Key")) -> s.Reminder:
@@ -155,6 +174,27 @@ def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None =
 
     app.include_router(router)
     return app
+
+
+def _encode_cursor(offset: int) -> str:
+    return f"p{offset}"
+
+
+def _decode_cursor(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    if not cursor.startswith("p") or not cursor[1:].isdigit():
+        raise HTTPException(status_code=422, detail="Invalid cursor")
+    return int(cursor[1:])
+
+
+def _recurrence_dto(rule, timezone: str):
+    if rule is None:
+        return None
+    return s.Recurrence(frequency=rule.frequency, timezone=timezone, starts_on=rule.starts_on.isoformat(),
+        ends_on=rule.ends_on.isoformat() if rule.ends_on else None,
+        weekdays=list(rule.weekdays) if rule.frequency == "weekly" else None,
+        dst_gap_policy=rule.gap_policy, dst_fold_policy=rule.fold_policy)
 
 
 app = create_app()
