@@ -1,11 +1,11 @@
 # KairosTide‑找回「时间之流」，重新栖居在时间里
 
-![Uploading ChatGPT 图像 2026年9月27日 00_59_05.png…]()
 
 > Time as the rhythm of the opportune, not the measure of the clock.
 >
 > **时间是时机的节律，而非钟表的度量。**
 
+![image-1](https://github.com/yishengsss/xianaihack-GK024--/blob/main/KAIRSTID.png)
 ## 1. 项目概述
 KairosTide‑找回「时间之流」，重新栖居在时间里是一款沉浸式时间体验系统。项目立足于对现代时间管理范式的反思，区别于传统日历、待办清单、专注计时类效率工具，不以时间刻度为核心驱动，而是借助动态自然场景重建人对时机的感知。
 
