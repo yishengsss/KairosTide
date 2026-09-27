@@ -25,6 +25,8 @@ class FixedModel:
     def complete(self, messages, tools):
         self.messages = messages
         self.tools = tools
+        if not tools and self.arguments.get("events"):
+            return ModelTurn(json.dumps(self.arguments, ensure_ascii=False), ())
         return ModelTurn(None, (ToolCall(call_id="image-tool", name="create_rigid_event_draft",
             arguments_json=json.dumps(self.arguments, ensure_ascii=False)),))
 
@@ -32,6 +34,16 @@ class FixedModel:
 class EmptyTurnModel:
     def complete(self, messages, tools):
         return ModelTurn(None, ())
+
+
+class TextTurnModel:
+    def __init__(self, answer):
+        self.answer = answer
+        self.tools = None
+
+    def complete(self, messages, tools):
+        self.tools = tools
+        return ModelTurn(self.answer, ())
 
 
 class FixedClock:
@@ -75,7 +87,7 @@ def test_timetable_image_creates_uncommitted_multi_candidate_draft(tmp_path):
     assert body.get("retain_image", False) is False
     assert body["action_results"][0]["data"]["existing_schedule_matches"] == []
     assert SqliteRepository(db).list_events("local") == []
-    assert [item["function"]["name"] for item in model.tools] == ["create_rigid_event_draft"]
+    assert model.tools == []
     user_content = next(item["content"] for item in model.messages if item["role"] == "user")
     assert isinstance(user_content, list)
     assert any(part.get("type") == "image_url" for part in user_content)
@@ -106,7 +118,7 @@ def test_image_turn_without_tool_call_has_specific_recoverable_feedback(tmp_path
     body = response.json()
     assert response.status_code == 200
     assert body["retain_image"] is True
-    assert "课表图片" in body["answer"]
+    assert "图片" in body["answer"]
     assert "固定安排还是待完成事项" not in body["answer"]
     assert SqliteRepository(tmp_path / "image-empty-turn.sqlite3").list_events("local") == []
 
@@ -147,7 +159,120 @@ def test_old_schedule_request_does_not_authorize_a_new_unrelated_image(tmp_path)
 
     assert response.status_code == 200
     assert response.json()["draft"] is None
-    assert len(model.tools) > 1
+    assert model.tools == []
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_generic_image_analysis_is_adaptive_read_only_and_returns_model_description(tmp_path):
+    model = TextTurnModel("这张图片是一张课程安排表，显示了多个日期、时段和课程信息。")
+    db = tmp_path / "image-generic-analysis.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    with TestClient(app) as client:
+        response = post_image(client, "image-generic-analysis", prompt="请读取并提取这张图片中的信息")
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == model.answer
+    assert response.json()["retain_image"] is True
+    assert model.tools == []
+    assert response.json()["draft"] is None
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_explicit_image_import_denial_does_not_create_a_schedule_draft(tmp_path):
+    model = TextTurnModel("好的，我只描述图片，不导入日程。")
+    db = tmp_path / "image-denied-import.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    with TestClient(app) as client:
+        response = post_image(client, "image-denied-import",
+            prompt="请识别这张课表，但不要导入日程。")
+    assert response.status_code == 200
+    assert response.json()["draft"] is None
+    assert model.tools == []
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_generic_schedule_extraction_request_can_make_visible_date_drafts(tmp_path):
+    model = FixedModel({"events": [
+        {"title": "软件测试技术", "frequency": "once", "date": "2026-09-28",
+         "location": "9#阶5", "start_time": "08:00", "end_time": "09:35"},
+        {"title": "软件工程", "frequency": "once", "date": "2026-09-30",
+         "location": "8#602D", "start_time": "08:00", "end_time": "09:35"},
+        {"title": "线性代数B", "frequency": "once", "date": "2026-09-29",
+         "location": "16#205D", "start_time": "10:05", "end_time": "11:40"},
+        {"title": "离散数学", "frequency": "once", "date": "2026-09-30",
+         "location": "8#604D", "start_time": "10:05", "end_time": "11:40"},
+        {"title": "软件测试技术实验", "frequency": "once", "date": "2026-09-28",
+         "location": "8#410D", "start_time": "16:15", "end_time": "17:50"},
+        {"title": "算法设计与分析", "frequency": "once", "date": "2026-09-29",
+         "location": "8#510D", "start_time": "19:20", "end_time": "21:00"},
+    ]})
+    db = tmp_path / "image-generic-schedule-import.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    prompt = "请从图片提取日程安排并生成待确认草稿，只导入图片可见日期，不要根据周次推断整学期重复。"
+    with TestClient(app) as client:
+        response = post_image(client, "image-generic-schedule-import", prompt=prompt)
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["draft"]["status"] == "ready"
+    candidates = body["draft"]["candidates"]
+    assert len(candidates) == 6
+    assert {item["title"] for item in candidates} == {
+        "软件测试技术", "软件工程", "线性代数B", "离散数学", "软件测试技术实验", "算法设计与分析"
+    }
+    assert {item["start_at"][:10] for item in candidates} == {
+        "2026-09-28", "2026-09-29", "2026-09-30"
+    }
+    assert all(item.get("recurrence") is None for item in candidates)
+    assert model.tools == []
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_schedule_image_extraction_preserves_user_selected_scope(tmp_path):
+    model = FixedModel({"events": [{"title": "软件工程", "frequency": "once", "date": "2026-09-30",
+        "start_time": "08:00", "end_time": "09:35", "location": "8#602D"}]})
+    db = tmp_path / "image-extraction-scope.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    prompt = "从这张图片只提取周三的软件工程课程并生成待确认日程。"
+    with TestClient(app) as client:
+        response = post_image(client, "image-extraction-scope", prompt=prompt)
+    assert response.status_code == 200
+    assert len(response.json()["draft"]["candidates"]) == 1
+    user_message = next(message for message in model.messages if message.get("role") == "user")
+    vision_text = next(part["text"] for part in user_message["content"] if part.get("type") == "text")
+    assert "用户指定的提取范围" in vision_text
+    assert prompt in vision_text
+
+
+def test_image_import_rejects_unstructured_tool_text_without_executing_it(tmp_path):
+    model = TextTurnModel("<tool_call><function=create_rigid_event_draft>untrusted text</function></tool_call>")
+    db = tmp_path / "image-unstructured.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    with TestClient(app) as client:
+        response = post_image(client, "image-unstructured",
+            prompt="请识别这张图中的课程安排并生成待确认日程")
+
+    assert response.status_code == 200
+    assert response.json()["draft"] is None
+    assert response.json()["retain_image"] is True
+    assert "没有生成日程草稿" in response.json()["answer"]
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_image_import_reports_unreadable_items_and_keeps_confirmable_draft(tmp_path):
+    event = {"title": "数学", "frequency": "once", "date": "2026-09-28",
+             "start_time": "09:00", "end_time": "10:00", "location": None}
+    model = TextTurnModel(json.dumps({"events": [event], "uncertainties": ["第二行结束时间模糊"]}, ensure_ascii=False))
+    db = tmp_path / "image-partial-extraction.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    with TestClient(app) as client:
+        response = post_image(client, "image-partial-extraction",
+            prompt="提取图片中的日程并生成待确认草稿")
+
+    body = response.json()
+    assert body["draft"]["status"] == "ready"
+    assert len(body["draft"]["candidates"]) == 1
+    assert "1 项图片信息无法可靠辨认" in body["answer"]
     assert SqliteRepository(db).list_events("local") == []
 
 

@@ -271,6 +271,7 @@ test('image attachment stays memory-only through clarification and clears after 
   } })
   session.setImage(image)
   await session.sendMessage()
+  assert.equal(sent[0].text, '请识别图片中的信息并告诉我能看出什么。')
   assert.equal(session.state.image, image)
   session.setInput('从 2026-09-01 到 2026-12-31')
   await session.sendMessage()

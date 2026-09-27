@@ -320,7 +320,7 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
 
   async function sendMessage(): Promise<boolean> {
     const image = state.image
-    const text = state.input.trim() || (image ? '请识别这张课表并生成待确认日程。' : '')
+    const text = state.input.trim() || (image ? '请识别图片中的信息并告诉我能看出什么。' : '')
     if ((!text && !image) || state.pending) return false
     if (!commands.sendMessage) {
       state.error = '服务尚未连接，原文未发送。'

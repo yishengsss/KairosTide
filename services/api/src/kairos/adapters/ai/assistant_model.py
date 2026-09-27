@@ -20,13 +20,29 @@ class MimoToolModel:
         self.max_completion_tokens = max_completion_tokens
 
     def complete(self, messages: list[dict], tools: list[dict]) -> ModelTurn:
+        has_image = any(
+            isinstance(message.get("content"), list)
+            and any(isinstance(part, dict) and part.get("type") in {"image_url", "input_image"}
+                    for part in message["content"])
+            for message in messages if isinstance(message, dict)
+        )
+        structured_image = has_image and any(
+            isinstance(part, dict) and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            and "KAIROS_IMAGE_JSON_EXTRACTION" in part["text"]
+            for message in messages if isinstance(message, dict) and isinstance(message.get("content"), list)
+            for part in message["content"]
+        )
+        completion_tokens = max(self.max_completion_tokens, 4096) if has_image else self.max_completion_tokens
+        request_timeout = max(self.timeout, 60) if has_image else self.timeout
         body = json.dumps({
             "model": self.model,
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
-            "max_completion_tokens": self.max_completion_tokens,
+            "max_completion_tokens": completion_tokens,
             "stream": False,
+            **({"response_format": {"type": "json_object"}} if structured_image else {}),
         }, ensure_ascii=False).encode("utf-8")
         request = Request(
             f"{self.base_url}/chat/completions", data=body,
@@ -34,7 +50,7 @@ class MimoToolModel:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout) as response:
+            with urlopen(request, timeout=request_timeout) as response:
                 payload = json.loads(response.read())
         except HTTPError as exc:
             raise MimoError(f"MiMo returned HTTP {exc.code}") from None

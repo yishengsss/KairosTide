@@ -56,16 +56,48 @@ def test_adapter_sends_tool_schemas_and_decodes_calls_without_executing(monkeypa
 def test_adapter_transports_current_turn_multimodal_content_parts(monkeypatch):
     captured = {}
     monkeypatch.setattr("kairos.adapters.ai.assistant_model.urlopen", lambda request, timeout: (
-        captured.update(body=json.loads(request.data)) or FakeResponse(
+        captured.update(body=json.loads(request.data), timeout=timeout) or FakeResponse(
             {"choices": [{"message": {"content": "已分析图片"}}]})))
     adapter = MimoToolModel("secret-key", base_url="https://provider.invalid/v1", model="mimo-v2.6-pro")
     content = [
-        {"type": "text", "text": "请分析课表"},
+        {"type": "text", "text": "KAIROS_IMAGE_JSON_EXTRACTION 请分析课表"},
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8="}},
     ]
     adapter.complete([{"role": "user", "content": content}], [])
     assert captured["body"]["messages"][0]["content"] == content
+    assert captured["body"]["max_completion_tokens"] == 4096
+    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert captured["timeout"] == 60
     assert "secret-key" not in json.dumps(captured["body"])
+
+
+def test_adapter_keeps_text_turn_budget_unchanged(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("kairos.adapters.ai.assistant_model.urlopen", lambda request, timeout: (
+        captured.update(body=json.loads(request.data), timeout=timeout) or FakeResponse(
+            {"choices": [{"message": {"content": "ok"}}]})))
+    adapter = MimoToolModel("secret-key", base_url="https://provider.invalid/v1", model="mimo-v2.6-pro")
+    adapter.complete([{"role": "user", "content": "你好"}], [])
+    assert captured["body"]["max_completion_tokens"] == 1024
+    assert "response_format" not in captured["body"]
+    assert captured["timeout"] == 30
+
+
+def test_general_image_query_uses_multimodal_transport_without_json_forcing(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("kairos.adapters.ai.assistant_model.urlopen", lambda request, timeout: (
+        captured.update(body=json.loads(request.data), timeout=timeout) or FakeResponse(
+            {"choices": [{"message": {"content": "图中是一只鸟。"}}]})))
+    adapter = MimoToolModel("secret-key", base_url="https://provider.invalid/v1", model="mimo-v2.6-pro")
+    content = [
+        {"type": "text", "text": "请描述图片"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8="}},
+    ]
+    result = adapter.complete([{"role": "user", "content": content}], [])
+    assert result.text == "图中是一只鸟。"
+    assert "response_format" not in captured["body"]
+    assert captured["body"]["max_completion_tokens"] == 4096
+    assert captured["timeout"] == 60
 
 
 @pytest.mark.parametrize("payload", [

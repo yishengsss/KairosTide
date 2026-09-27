@@ -45,13 +45,13 @@ defineExpose({ focusInput: () => input.value?.focus() })
   <form class="composer" @submit.prevent="emit('submit')">
     <label for="kairos-assistant-input">给 Kairos 留言</label>
     <div v-if="image" class="attachment" aria-label="待发送图片">
-      <img :src="previewUrl" alt="课表图片预览" />
+      <img :src="previewUrl" alt="待分析图片预览" />
       <span>{{ image.name }}</span>
       <button type="button" class="remove-image" aria-label="移除图片" @click="emit('update:image', null)">移除</button>
     </div>
     <div class="composer-row">
       <textarea id="kairos-assistant-input" ref="input" :value="value" rows="2" placeholder="说说你想安排或询问的事" @input="onInput" @keydown.enter="onEnter" />
-      <input ref="imageInput" class="file-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="选择课表图片" @change="onFile" />
+      <input ref="imageInput" class="file-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="选择图片" @change="onFile" />
       <ActionButton type="button" quiet :disabled="pending" @click="imageInput?.click()">图片</ActionButton>
       <ActionButton type="submit" :disabled="(!value.trim() && !image) || pending">{{ pending ? '发送中…' : '发送' }}</ActionButton>
     </div>
