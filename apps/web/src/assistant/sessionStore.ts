@@ -5,6 +5,11 @@ export type DraftResponse = components['schemas']['DraftResponse']
 export type DraftCommitRequest = components['schemas']['DraftCommitRequest']
 export type DraftCommitResponse = components['schemas']['DraftCommitResponse']
 export type ActiveOccurrence = components['schemas']['Occurrence']
+type Conversation = components['schemas']['Conversation']
+type ConversationPage = components['schemas']['MessagePage']
+type ConversationMessage = components['schemas']['ConversationMessage']
+type MessageRequest = components['schemas']['MessageRequest']
+type MessageResponse = components['schemas']['MessageResponse']
 
 export interface AssistantReply {
   answer: string
@@ -61,6 +66,10 @@ export function asRigidEventProposal(result: AssistantActionResult): RigidEventP
 }
 
 export interface AssistantCommands {
+  createConversation?: (idempotencyKey: string) => Promise<Conversation>
+  appendConversationTurn?: (conversationId: string, request: MessageRequest, idempotencyKey: string) => Promise<MessageResponse>
+  loadConversation?: (conversationId: string, cursor?: string) => Promise<ConversationPage>
+  getDraft?: (draftId: string) => Promise<DraftResponse>
   sendMessage?: (text: string, clientMessageId: string, messages: AssistantMessage[], image?: File) => Promise<AssistantReply>
   confirmDraft?: (draftId: string, request: DraftCommitRequest, idempotencyKey: string) => Promise<DraftCommitResponse>
   commitProposal?: (proposalId: string, request: { revision: number; confirmation_digest: string; source_action_id: string },
@@ -84,9 +93,31 @@ interface PendingReminderAck {
 }
 
 const reminderStorageKey = 'kairos.reminder-ack.v1'
+const conversationStorageKey = 'kairos.assistant-conversation.v1'
 
 function browserStorage(): KeyValueStorage | undefined {
   try { return globalThis.localStorage } catch { return undefined }
+}
+
+function readConversationId(storage: KeyValueStorage | undefined): string | null {
+  try {
+    const id = storage?.getItem(conversationStorageKey)
+    return typeof id === 'string' && id ? id : null
+  } catch { return null }
+}
+
+async function imageAttachment(image: File): Promise<NonNullable<MessageRequest['image']>> {
+  const mimeType = image.type
+  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png' && mimeType !== 'image/webp') {
+    throw new Error('unsupported image type')
+  }
+  const bytes = new Uint8Array(await image.arrayBuffer())
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return { mime_type: mimeType, data_base64: btoa(binary) }
 }
 
 export type Reminder = components['schemas']['Reminder']
@@ -94,17 +125,27 @@ export type Reminder = components['schemas']['Reminder']
 export interface AssistantMessage {
   role: 'user' | 'assistant'
   content: string
+  sequence?: number
+  status?: 'pending' | 'completed'
   hasImage?: boolean
   actionResults?: AssistantActionResult[]
 }
 
 export function createAssistantSession(initialCommands: AssistantCommands = {}, storage = browserStorage()) {
   let commands = initialCommands
-  let sendAttempt: { text: string; image: File | null; key: string } | null = null
+  const initialConversationId = readConversationId(storage)
+  let sendAttempt: { text: string; image: File | null; key: string; expectedSequence: number; uncertain?: boolean } | null = null
+  let createAttempt: string | null = null
+  let restoreAttempt: Promise<boolean> | null = null
   let commitAttempt: { identity: string; key: string } | null = null
   const proposalAttempts = new Map<string, { identity: string; key: string }>()
   const state = reactive({
     open: false,
+    conversationId: initialConversationId,
+    conversationRevision: 0,
+    conversationLoaded: !initialConversationId,
+    conversationRestoring: false,
+    pendingConversationTurn: null as { clientMessageId: string; content: string; expectedSequence: number } | null,
     input: '',
     image: null as File | null,
     imageError: '',
@@ -161,7 +202,7 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
   let exceptionAttempt: { occurrenceId: string; key: string } | null = null
 
   function setCommands(next: AssistantCommands) { commands = next }
-  function open() { state.open = true }
+  function open() { state.open = true; if (state.conversationId) void restoreConversation() }
   function close() { state.open = false }
   function setInput(text: string) {
     if (text.trim() !== sendAttempt?.text) sendAttempt = null
@@ -190,6 +231,100 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
       return
     }
     state.reminder = reminder
+  }
+
+  function storeConversationId(id: string) {
+    state.conversationId = id
+    try { storage?.setItem(conversationStorageKey, id) }
+    catch { /* The conversation remains usable for this page even if storage is unavailable. */ }
+  }
+
+  function restoreMessage(message: ConversationMessage): AssistantMessage {
+    return {
+      role: message.role,
+      content: message.content,
+      sequence: message.sequence,
+      status: message.status,
+      actionResults: (message.action_results ?? []) as AssistantActionResult[],
+    }
+  }
+
+  async function readAllConversationPages(conversationId: string): Promise<{
+    items: ConversationMessage[]; revision: number; pendingClientMessageId: string | null
+  }> {
+    if (!commands.loadConversation) throw new Error('conversation read unavailable')
+    const items: ConversationMessage[] = []
+    let cursor: string | null | undefined
+    let revision = 0
+    let pendingClientMessageId: string | null = null
+    do {
+      const page = await commands.loadConversation(conversationId, cursor ?? undefined)
+      items.push(...page.items)
+      revision = page.revision
+      pendingClientMessageId = page.pending_client_message_id ?? pendingClientMessageId
+      cursor = page.next_cursor
+    } while (cursor)
+    return { items, revision, pendingClientMessageId }
+  }
+
+  async function restoreLatestDraft(items: ConversationMessage[]): Promise<void> {
+    state.draft = null
+    state.draftMessageIndex = null
+    const latestDraftId = [...items].reverse().flatMap(item => item.draft_refs ?? []).at(0)
+    if (!latestDraftId || !commands.getDraft) return
+    try {
+      const currentDraft = await commands.getDraft(latestDraftId)
+      const sourceIndex = [...items].findLastIndex(item => item.role === 'assistant' && item.draft_refs?.includes(latestDraftId))
+      state.draft = currentDraft
+      state.draftMessageIndex = sourceIndex >= 0 ? sourceIndex : null
+    } catch {
+      // A missing, expired or inaccessible draft is not restored from stale message data.
+    }
+  }
+
+  async function restoreConversation(): Promise<boolean> {
+    if (!state.conversationId) return true
+    if (restoreAttempt) return restoreAttempt
+    if (!commands.loadConversation) return false
+    state.conversationRestoring = true
+    state.error = ''
+    restoreAttempt = (async () => {
+      try {
+        const conversationId = state.conversationId
+        if (!conversationId) return true
+        const { items, revision, pendingClientMessageId } = await readAllConversationPages(conversationId)
+        state.messages = items.map(restoreMessage)
+        state.conversationRevision = revision
+        const pendingUser = items.find(item => item.role === 'user' && item.status === 'pending')
+        state.pendingConversationTurn = pendingUser && pendingClientMessageId
+          ? { clientMessageId: pendingClientMessageId, content: pendingUser.content, expectedSequence: pendingUser.sequence - 1 }
+          : null
+        state.draftConflict = null
+        await restoreLatestDraft(items)
+        state.conversationLoaded = true
+        return true
+      } catch {
+        state.error = '无法恢复这段对话，请检查连接后重试。'
+        return false
+      } finally {
+        state.conversationRestoring = false
+        restoreAttempt = null
+      }
+    })()
+    return restoreAttempt
+  }
+
+  async function createConversationIfNeeded(): Promise<boolean> {
+    if (state.conversationId) return true
+    if (!commands.createConversation) return false
+    if (!createAttempt) createAttempt = globalThis.crypto.randomUUID()
+    const conversation = await commands.createConversation(createAttempt)
+    if (!conversation.conversation_id) throw new Error('Invalid conversation response')
+    storeConversationId(conversation.conversation_id)
+    state.conversationRevision = conversation.revision
+    state.conversationLoaded = true
+    createAttempt = null
+    return true
   }
 
   async function acknowledgeReminder(): Promise<boolean> {
@@ -326,31 +461,139 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
     const image = state.image
     const text = state.input.trim() || (image ? '请识别图片中的信息并告诉我能看出什么。' : '')
     if ((!text && !image) || state.pending) return false
-    if (!commands.sendMessage) {
+    if (state.pendingConversationTurn && text !== state.pendingConversationTurn.content) {
+      state.error = '上一条消息仍待服务端处理。请先重新发送原文，恢复该轮后再继续。'
+      return false
+    }
+    const lastMessage = state.messages[state.messages.length - 1]
+    const confirmsDisplayedDraft = !image && /^(?:确认|确认保存|确认保存全部项目|保存日程|保存)[。！!\s]*$/.test(text) &&
+      state.draft?.status === 'ready' && state.draftMessageIndex === state.messages.length - 1 &&
+      lastMessage?.role === 'assistant' && /确认|核对/.test(lastMessage.content)
+    if (confirmsDisplayedDraft) {
+      state.error = ''
+      const saved = await confirmDraft()
+      if (!saved) return false
+      state.messages.push({ role: 'user', content: text })
+      state.messages.push({ role: 'assistant', content: '已保存这份日程。' })
+      if (state.input.trim() === text) state.input = ''
+      sendAttempt = null
+      return true
+    }
+    if (!commands.sendMessage && !commands.appendConversationTurn) {
       state.error = '服务尚未连接，原文未发送。'
       return false
     }
     state.pending = 'sending'
     state.error = ''
-    if (!sendAttempt || sendAttempt.text !== text || sendAttempt.image !== image) {
-      sendAttempt = { text, image, key: globalThis.crypto.randomUUID() }
-    }
+    let retainImage = false
     try {
-      const messages = [...state.messages, { role: 'user' as const, content: text }]
-      const reply = await commands.sendMessage(text, sendAttempt.key, messages, image ?? undefined)
-      state.messages.push({ role: 'user', content: text, hasImage: image !== null })
-      if (reply.answer || reply.action_results?.length) state.messages.push({ role: 'assistant', content: reply.answer,
-        actionResults: reply.action_results ?? [] })
-      if (reply.draft !== undefined) setDraft(reply.draft)
+      if (commands.appendConversationTurn) {
+        if (!await createConversationIfNeeded()) throw new Error('conversation service unavailable')
+        if (state.conversationRestoring || !state.conversationLoaded) {
+          if (!await restoreConversation()) throw new Error('conversation restore failed')
+        }
+        if (!sendAttempt || sendAttempt.text !== text || sendAttempt.image !== image) {
+          sendAttempt = state.pendingConversationTurn
+            ? { text, image, key: state.pendingConversationTurn.clientMessageId,
+              expectedSequence: state.pendingConversationTurn.expectedSequence, uncertain: true }
+            : { text, image, key: globalThis.crypto.randomUUID(), expectedSequence: state.conversationRevision }
+        }
+        if (sendAttempt.uncertain && commands.loadConversation) {
+          const alreadyCompleted = await syncBeforeRetry(sendAttempt)
+          if (alreadyCompleted) {
+            if (state.input.trim() === text) state.input = ''
+            if (state.image === image) state.image = null
+            sendAttempt = null
+            return true
+          }
+        }
+        const request: MessageRequest = {
+          client_message_id: sendAttempt.key, content: text, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          expected_sequence: sendAttempt.expectedSequence,
+          ...(image ? { image: await imageAttachment(image) } : {}),
+        }
+        const response = await commands.appendConversationTurn(state.conversationId!, request, sendAttempt.key)
+        state.conversationRevision = response.revision
+        state.pendingConversationTurn = null
+        await mergeTurnResponse(response, image !== null)
+      } else {
+        if (!sendAttempt || sendAttempt.text !== text || sendAttempt.image !== image) {
+          sendAttempt = { text, image, key: globalThis.crypto.randomUUID(), expectedSequence: 0 }
+        }
+        const messages = [...state.messages, { role: 'user' as const, content: text }]
+        const reply = await commands.sendMessage!(text, sendAttempt.key, messages, image ?? undefined)
+        retainImage = reply.retain_image ?? false
+        state.messages.push({ role: 'user', content: text, hasImage: image !== null })
+        if (reply.answer || reply.action_results?.length) state.messages.push({ role: 'assistant', content: reply.answer,
+          actionResults: reply.action_results ?? [] })
+        if (reply.draft !== undefined) setDraft(reply.draft)
+      }
       if (state.input.trim() === text) state.input = ''
-      if (state.image === image && !reply.retain_image) state.image = null
+      if (state.image === image && !retainImage) state.image = null
       sendAttempt = null
       return true
     } catch {
-      state.error = '发送结果未确认，原文仍在。请核对后重试。'
+      if (sendAttempt) sendAttempt.uncertain = true
+      state.error = '发送结果未确认，原文仍在。重试前会先核对会话记录。'
       return false
     } finally {
       state.pending = null
+    }
+  }
+
+  async function syncBeforeRetry(attempt: NonNullable<typeof sendAttempt>): Promise<boolean> {
+    const conversationId = state.conversationId
+    if (!conversationId || !commands.loadConversation) return false
+    const { items, revision, pendingClientMessageId } = await readAllConversationPages(conversationId)
+    state.messages = items.map(restoreMessage)
+    state.conversationRevision = revision
+    const pendingUser = items.find(item => item.role === 'user' && item.status === 'pending')
+    state.pendingConversationTurn = pendingUser && pendingClientMessageId
+      ? { clientMessageId: pendingClientMessageId, content: pendingUser.content, expectedSequence: pendingUser.sequence - 1 }
+      : null
+    await restoreLatestDraft(items)
+    if (state.pendingConversationTurn && state.pendingConversationTurn.clientMessageId !== attempt.key) {
+      throw new Error('A different conversation turn is pending.')
+    }
+    const user = items.find(item => item.sequence === attempt.expectedSequence + 1 &&
+      item.role === 'user' && item.content === attempt.text)
+    if (user?.status === 'pending') return false
+    if (user && items.some(item => item.sequence === user.sequence + 1 && item.role === 'assistant')) {
+      return true
+    }
+    if (revision !== attempt.expectedSequence) {
+      attempt.expectedSequence = revision
+      state.error = '会话已更新，请确认原文后重试。'
+    }
+    return false
+  }
+
+  async function retryPendingTurn(): Promise<boolean> {
+    const pending = state.pendingConversationTurn
+    if (!pending || state.pending) return false
+    state.input = pending.content
+    return sendMessage()
+  }
+
+  async function mergeTurnResponse(response: MessageResponse, hasImage: boolean) {
+    const user = response.user_message
+    if (user) {
+      const existingIndex = state.messages.findIndex(item => item.sequence === user.sequence && item.role === user.role)
+      if (existingIndex >= 0) state.messages[existingIndex] = { ...restoreMessage(user), hasImage: state.messages[existingIndex].hasImage || hasImage }
+      else state.messages.push({ ...restoreMessage(user), hasImage })
+    }
+    if (response.answer && !state.messages.some(item => item.role === 'assistant' &&
+      item.content === response.answer?.content && item.sequence === response.answer?.sequence)) {
+      state.messages.push(restoreMessage(response.answer))
+    }
+    const draftId = response.draft_refs.at(-1)
+    if (draftId && commands.getDraft) {
+      try {
+        const draft = await commands.getDraft(draftId)
+        state.draft = draft
+        state.draftMessageIndex = response.answer ? state.messages.findIndex(item =>
+          item.role === 'assistant' && item.content === response.answer?.content) : null
+      } catch { setDraft(null) }
     }
   }
 
@@ -437,7 +680,7 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
   }
 
   return { state, setCommands, open, close, setInput, setImage, setDraft, setActiveNotice, clearError, setReminder, refreshState,
-    acknowledgeReminder, chooseConflict, excuseOccurrence, sendMessage, confirmDraft, confirmProposal }
+    acknowledgeReminder, chooseConflict, excuseOccurrence, sendMessage, retryPendingTurn, confirmDraft, confirmProposal, restoreConversation }
 }
 
 export const assistantSession = createAssistantSession()

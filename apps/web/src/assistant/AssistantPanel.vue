@@ -59,6 +59,11 @@ function returnToScene() {
           <ActionButton quiet aria-label="关闭提醒同步状态" @click="session.state.notice = ''">关闭</ActionButton>
         </div>
         <div class="assistant-scroll" role="region" aria-labelledby="kairos-assistant-title">
+          <p v-if="session.state.conversationRestoring" class="conversation-status" role="status">正在恢复这段对话…</p>
+          <div v-if="session.state.pendingConversationTurn" class="conversation-status" role="status">
+            <span>上一条消息等待服务端处理，可安全恢复发送。</span>
+            <ActionButton quiet @click="session.retryPendingTurn">恢复发送</ActionButton>
+          </div>
           <Conversation :messages="session.state.messages" :proposal-commits="session.state.proposalCommits"
             :proposal-pending-id="session.state.proposalPendingId" :proposal-errors="session.state.proposalErrors"
             @confirm-proposal="session.confirmProposal">
@@ -92,6 +97,7 @@ function returnToScene() {
 .assistant-notice { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 1rem .75rem; padding: .5rem .65rem; border-radius: .75rem; background: #e8efe7; color: #233d2d; font-size: .875rem; }
 .assistant-notice span { min-width: 0; overflow-wrap: anywhere; }
 .assistant-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 1rem; padding: 0 1rem 1rem; }
+.conversation-status { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: 0; padding: .65rem .75rem; border-radius: .75rem; background: #e8efe7; color: #355342; font-size: .875rem; }
 .assistant-error { flex: none; margin: 0 1rem .25rem; padding: .65rem .75rem; border-radius: .6rem; background: #fff0e9; color: #823e29; }
 @media (max-width: 59.999rem) {
   .assistant-panel { top: auto; right: 0; bottom: 0; width: 100%; height: min(88dvh, 46rem); transform: translateY(1.5rem); }

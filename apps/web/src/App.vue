@@ -4,7 +4,7 @@ import ContinuousFlowScene from './scene/flow/ContinuousFlowScene.vue'
 import { RealClock } from './platform/clocks.ts'
 import { SceneEnvironmentSession } from './scene/session.ts'
 import AssistantPanel from './assistant/AssistantPanel.vue'
-import { toAssistantChatMessages } from './assistant/chatPayload.ts'
+import { appendConversationTurn, createConversation, getConversationDraft, loadConversation } from './assistant/conversationApi.ts'
 import { assistantSession } from './assistant/sessionStore.ts'
 import ReminderLayer from './presentation/ReminderLayer.vue'
 import { bindTimePeek } from './platform/timePeek.ts'
@@ -264,28 +264,13 @@ watch(() => activeOccurrence.value?.occurrence_id, (occurrenceId) => {
   }, 3_200)
 })
 
-async function encodeImage(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
-  }
-  return btoa(binary)
-}
-
 assistantSession.setCommands({
-  sendMessage: async (_text, clientMessageId, messages, image) => {
-    const imageAttachment = image ? { mime_type: image.type, data_base64: await encodeImage(image) } : undefined
-    const response = await fetch('/api/v1/assistant/chat', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_message_id: clientMessageId,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-         messages: toAssistantChatMessages(messages), ...(imageAttachment ? { image: imageAttachment } : {}) }),
-    })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const reply = await response.json()
-    if (reply.action_results?.some((result: { action?: string; status?: string }) =>
+  createConversation,
+  loadConversation,
+  getDraft: getConversationDraft,
+  appendConversationTurn: async (conversationId, request, idempotencyKey) => {
+    const reply = await appendConversationTurn(conversationId, request, idempotencyKey)
+    if (reply.tool_results.some((result: { action?: string; status?: string }) =>
       ['create_flexible_task', 'update_flexible_task', 'delete_flexible_task'].includes(result.action ?? '') && result.status === 'succeeded')) {
       void loadFlexibleTasks()
     }
