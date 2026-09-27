@@ -119,13 +119,17 @@ def test_pending_same_id_resumes_but_new_message_and_stale_sequence_conflict(tmp
                                clock=FixedClock(), assistant_task_model=model)) as client:
         conversation_id = create(client)
         failed = send(client, conversation_id, "pending-id", "十分钟后有个会议", 0)
+        pending_page = client.get(f"/api/v1/conversations/{conversation_id}/messages")
         competing = send(client, conversation_id, "other-id", "其他消息", 1)
         resumed = send(client, conversation_id, "pending-id", "十分钟后有个会议", 0)
+        completed_page = client.get(f"/api/v1/conversations/{conversation_id}/messages")
         stale = send(client, conversation_id, "next", "新消息", 0)
     assert failed.status_code == 500 or failed.status_code == 502
     assert competing.status_code == 409
+    assert pending_page.json()["pending_client_message_id"] == "pending-id"
     assert resumed.status_code == 200
     assert resumed.json()["answer"]["content"] == "恢复完成"
+    assert completed_page.json()["pending_client_message_id"] is None
     assert stale.status_code == 409
     assert len(model.calls) == 2
 

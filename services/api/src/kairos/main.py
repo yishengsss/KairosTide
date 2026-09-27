@@ -427,7 +427,8 @@ def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None =
             created_at=item.created_at, status=item.status, action_results=item.action_results,
             draft_refs=item.draft_refs) for item in page.items],
             next_cursor=_encode_cursor(page.next_cursor) if page.next_cursor is not None else None,
-            draft_refs=page.draft_refs, revision=page.revision)
+            draft_refs=page.draft_refs, revision=page.revision,
+            pending_client_message_id=page.pending_client_message_id)
 
     @router.get("/weather", response_model=s.WeatherResponse)
     def weather(location_id: str, from_at: datetime | None = Query(default=None, alias="from"),
