@@ -242,6 +242,56 @@ test('explicit confirmation sends every candidate ID and only then marks saved',
   assert.equal(session.state.draft.status, 'committed')
 })
 
+test('typing confirm after the latest ready draft commits that exact draft instead of re-parsing chat', async () => {
+  let sends = 0
+  let commits = 0
+  const session = createAssistantSession({
+    sendMessage: async () => { sends++; return { answer: '不应重新解析' } },
+    confirmDraft: async () => {
+      commits++
+      return { draft_id: 'draft-1', revision: 3, resources: [
+        { resource_id: 'event-1', resource_type: 'event', version: 1 },
+        { resource_id: 'event-2', resource_type: 'event', version: 1 },
+        { resource_id: 'event-3', resource_type: 'event', version: 1 },
+      ] }
+    },
+  })
+  session.state.messages.push({ role: 'assistant', content: '已生成日程草稿，请检查内容并确认。' })
+  session.setDraft(draft())
+  session.setInput('确认')
+
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(sends, 0)
+  assert.equal(commits, 1)
+  assert.equal(session.state.draft.status, 'committed')
+  assert.equal(session.state.input, '')
+})
+
+test('typing confirm after a newer unrelated reply does not commit an older ready draft', async () => {
+  let sends = 0
+  let commits = 0
+  const session = createAssistantSession({
+    sendMessage: async () => { sends++; return { answer: '普通对话回复' } },
+    confirmDraft: async () => {
+      commits++
+      return { draft_id: 'draft-1', revision: 3, resources: [
+        { resource_id: 'event-1', resource_type: 'event', version: 1 },
+        { resource_id: 'event-2', resource_type: 'event', version: 1 },
+        { resource_id: 'event-3', resource_type: 'event', version: 1 },
+      ] }
+    },
+  })
+  session.state.messages.push({ role: 'assistant', content: '已生成日程草稿，请检查内容并确认。' })
+  session.setDraft(draft())
+  session.state.messages.push({ role: 'user', content: '顺便问一下天气' })
+  session.state.messages.push({ role: 'assistant', content: '请先告诉我城市。' })
+  session.setInput('确认')
+
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(sends, 1)
+  assert.equal(commits, 0)
+})
+
 test('send failure retains original text and existing draft for retry', async () => {
   let attempts = 0
   const keys = []

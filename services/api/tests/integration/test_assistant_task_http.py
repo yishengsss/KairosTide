@@ -80,6 +80,55 @@ def test_user_confirmation_of_relative_time_asks_for_absolute_start_without_draf
     assert SqliteRepository(db).list_events("local") == []
 
 
+def test_duration_followup_uses_prior_relative_meeting_context_to_make_draft(tmp_path):
+    db = tmp_path / "relative-meeting-duration-followup.sqlite3"
+    model = FixedModel(ModelTurn(None, (call("create_rigid_event_draft", {}),)))
+    class RecentClock:
+        def now(self):
+            return datetime(2026, 9, 26, 12, 1, tzinfo=UTC)
+
+    history = [
+        {"role": "user", "content": "十分钟后有一个会议"},
+        {"role": "assistant", "content": "现在是20:00，十分钟后也就是20:10开始。不过还需要知道预计时长才能生成日程草稿。"},
+        {"role": "user", "content": "持续20分钟"},
+    ]
+    with TestClient(create_app(str(db), owner_id="local", clock=RecentClock(),
+                               assistant_task_model=model)) as client:
+        response = client.post("/api/v1/assistant/chat", json={
+            "client_message_id": "relative-duration-followup", "timezone": "Asia/Shanghai",
+            "messages": history,
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft"]["status"] == "ready"
+    candidate = body["draft"]["candidates"][0]
+    assert candidate["title"] == "会议"
+    assert candidate["start_at"].endswith("T20:10:00+08:00")
+    assert candidate["end_at"].endswith("T20:30:00+08:00")
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_duration_only_reply_without_a_recent_rigid_time_clarification_cannot_create_event(tmp_path):
+    db = tmp_path / "unanchored-duration-reply.sqlite3"
+    model = FixedModel(ModelTurn(None, (call("create_rigid_event_draft", {}),)))
+    history = [
+        {"role": "user", "content": "我最近总是开会"},
+        {"role": "assistant", "content": "你希望我帮你查询现有日程吗？"},
+        {"role": "user", "content": "持续20分钟"},
+    ]
+    with TestClient(create_app(str(db), owner_id="local", clock=FixedClock(),
+                               assistant_task_model=model)) as client:
+        response = client.post("/api/v1/assistant/chat", json={
+            "client_message_id": "unanchored-duration-reply", "timezone": "Asia/Shanghai",
+            "messages": history,
+        })
+
+    assert response.status_code == 200
+    assert response.json()["draft"] is None
+    assert SqliteRepository(db).list_events("local") == []
+
+
 def test_uncertain_schedule_message_can_ask_without_creating_a_draft(tmp_path):
     model = FixedModel(ModelTurn("你是希望安排一个固定时刻，还是只记录为待完成事项？"))
     with TestClient(create_app(str(tmp_path / "clarify.sqlite3"), owner_id="local",

@@ -259,6 +259,10 @@ _PERSONAL_RECORD_SCOPE = re.compile(
     r"我的|我(?:想|能|可以|目前|现在|这周|今天|还有|还剩|有)|自己|已保存|保存的|已记录|"
     r"待办|未完成|快截止|临近截止|还剩|告诉我|课表|有哪些任务|有什么任务|任务清单", re.I)
 _RELATIVE_EVENT_START = re.compile(r"(?:\d{1,3}|[一二三四五六七八九十两]{1,3})\s*(?:秒|分钟|小时)后|(?:过|再等)\s*(?:\d{1,3}|[一二三四五六七八九十两]{1,3})\s*(?:秒|分钟|小时)", re.I)
+_RIGID_DURATION_REPLY = re.compile(r"(?:(?:持续|时长(?:为)?|预计(?:持续|时长)?|大约持续)\s*)?([一二三四五六七八九十两\d]{1,3})\s*(?:分钟|小时)(?:左右)?[。！!\s]*", re.I)
+_RIGID_DURATION_QUESTION = re.compile(r"结束时间|预计时长|持续多久|多长时间|持续时间|时长", re.I)
+_ASSISTANT_CURRENT_TIME = re.compile(r"(?:现在(?:时间)?|当前时间)(?:是|为)?[^0-9]{0,5}(\d{1,2}):(\d{2})")
+_ASSISTANT_PROPOSED_TIME = re.compile(r"(?:也就是|即|开始(?:时间)?(?:是|为)?)[^0-9]{0,12}(\d{1,2}):(\d{2})")
 _QUERY = re.compile(r"(?:查询|查(?:一下|查|到)?|查看|看看|看下|列出|列一下|告诉我|有哪些|还有哪些|有什么|我还剩|快截止|临近截止|未完成|待办|能否|能不能|可以(?:吗)?|可不可以|吗|么|deadline|list my|show my|what tasks)", re.I)
 _RIGID_QUERY = re.compile(r"(?:查|查看|看看|看下|列出|有哪些|还有哪些|日历|课表|行程|schedule|calendar|list|show)", re.I)
 _QUERY_SUBJECT = re.compile(r"任务|事情|待办|作业|规划|计划|task|deadline|截止", re.I)
@@ -856,6 +860,11 @@ class AssistantService:
                 ))
             intent = None
         rigid_event_text = current_text
+        if intent is None:
+            continuation = self._rigid_duration_followup_source(messages, timezone, now)
+            if continuation is not None:
+                intent = "create_rigid_event_draft"
+                rigid_event_text = continuation
         if intent is None and _RIGID_CONFIRMATION.fullmatch(current_text.strip()):
             anchor = self._confirmed_rigid_source(messages, timezone, now)
             if anchor is not None:
@@ -1057,6 +1066,53 @@ class AssistantService:
             if isinstance(content, str):
                 result.append({"role": item["role"], "content": content[:8000]})
         return result
+
+    @staticmethod
+    def _rigid_duration_followup_source(messages: list[dict[str, Any]], timezone: str,
+                                        now: datetime) -> str | None:
+        if len(messages) < 3 or not isinstance(messages[-1], dict) or messages[-1].get("role") != "user":
+            return None
+        current_text = messages[-1].get("content")
+        assistant = messages[-2] if isinstance(messages[-2], dict) else {}
+        assistant_text = assistant.get("content")
+        if (not isinstance(current_text, str) or not _RIGID_DURATION_REPLY.fullmatch(current_text.strip())
+                or assistant.get("role") != "assistant" or not isinstance(assistant_text, str)
+                or not _RIGID_DURATION_QUESTION.search(assistant_text)):
+            return None
+        source = next((item.get("content") for item in reversed(messages[:-2])
+                       if isinstance(item, dict) and item.get("role") == "user"), None)
+        if not isinstance(source, str) or _user_intent(source) != "create_rigid_event_draft":
+            return None
+        current_match = _ASSISTANT_CURRENT_TIME.search(assistant_text)
+        proposed_match = _ASSISTANT_PROPOSED_TIME.search(assistant_text)
+        if current_match is None or proposed_match is None:
+            return None
+        zone = ZoneInfo(timezone)
+        local_now = now.astimezone(zone)
+        hour, minute = int(current_match.group(1)), int(current_match.group(2))
+        proposed_hour, proposed_minute = int(proposed_match.group(1)), int(proposed_match.group(2))
+        if hour > 23 or proposed_hour > 23 or minute > 59 or proposed_minute > 59:
+            return None
+        reference_now = datetime.combine(local_now.date(), time(hour, minute), zone)
+        if reference_now > local_now + timedelta(minutes=1):
+            reference_now -= timedelta(days=1)
+        if local_now - reference_now < timedelta(0) or local_now - reference_now > timedelta(minutes=5):
+            return None
+        try:
+            original = parse_event_candidate(source, timezone, reference_now)
+            combined = parse_event_candidate(f"{source}，{current_text}", timezone, reference_now)
+        except ValueError:
+            return None
+        if original.start_at is None or original.end_at is not None:
+            return None
+        proposed_at = datetime.combine(reference_now.date(), time(proposed_hour, proposed_minute), zone)
+        if proposed_at < reference_now:
+            proposed_at += timedelta(days=1)
+        if (combined.start_at is None or combined.end_at is None or combined.end_at <= combined.start_at
+                or combined.start_at != proposed_at or combined.start_at.date() != combined.end_at.date()):
+            return None
+        return (f"{combined.start_at.date().isoformat()} {combined.start_at:%H:%M}-"
+                f"{combined.end_at:%H:%M} {combined.title}")
 
     @staticmethod
     def _confirmed_rigid_source(messages: list[dict[str, Any]], timezone: str, now: datetime) -> str | None:
