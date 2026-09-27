@@ -488,6 +488,56 @@ def test_rigid_schedule_is_not_read_for_ambiguous_plan_query():
     assert "固定时间的日程" in result.answer or model.calls
 
 
+def test_elliptical_flexible_followup_queries_tasks_after_rigid_schedule_answer():
+    tasks = FakeTasks()
+    service = AssistantService(FakeModel(ModelTurn("根据记录回答。")), tasks)
+    result = service.handle("owner-a", "elliptical-flexible", "Asia/Shanghai", [
+        {"role": "user", "content": "我现在有哪些日程"},
+        {"role": "assistant", "content": "接下来七天没有已保存的刚性日程。\n已查询的刚性日程"},
+        {"role": "user", "content": "柔性的呢"},
+    ])
+
+    assert tasks.listed == 1
+    assert result.action_results[0].action == "query_flexible_tasks"
+    assert "高数作业" in result.answer
+
+
+def test_elliptical_rigid_followup_queries_schedule_after_kind_clarification():
+    class Events:
+        def __init__(self): self.calls = []
+        def list_occurrences(self, owner_id, start, end):
+            self.calls.append((owner_id, start, end))
+            return []
+
+    events = Events()
+    model = FakeModel(ModelTurn(None, [tool("query_rigid_events", {})]))
+    service = AssistantService(model, FakeTasks(), rigid_events=events,
+        clock=lambda: datetime(2026, 9, 27, 12, tzinfo=UTC))
+    result = service.handle("owner-a", "elliptical-rigid", "Asia/Shanghai", [
+        {"role": "user", "content": "柔性的呢"},
+        {"role": "assistant", "content": "你是想查看没有固定开始时间的柔性任务，还是查询固定时间的日程？"},
+        {"role": "user", "content": "固定时间的日程"},
+    ])
+
+    assert len(events.calls) == 1
+    assert result.action_results[0].action == "query_rigid_events"
+    assert "接下来七天没有已保存的刚性日程" in result.answer
+
+
+def test_elliptical_schedule_category_without_recent_context_does_not_read_records():
+    class Events:
+        def list_occurrences(self, *args):
+            raise AssertionError("standalone category phrase must not read records")
+
+    model = FakeModel(ModelTurn("这次没有读取记录。", [tool("query_rigid_events", {})]))
+    service = AssistantService(model, FakeTasks(), rigid_events=Events())
+    result = service.handle("owner-a", "unanchored-rigid-category", "Asia/Shanghai", [
+        {"role": "user", "content": "固定时间的日程"},
+    ])
+
+    assert result.action_results == ()
+
+
 def test_user_explicitly_asking_what_they_can_do_runs_task_query_only_on_tool_call():
     tasks = FakeTasks()
     model = FakeModel(ModelTurn("你可以做很多事情。", [tool("query_flexible_tasks", {})]),

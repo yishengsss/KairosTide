@@ -263,6 +263,9 @@ _QUERY = re.compile(r"(?:查询|查(?:一下|查|到)?|查看|看看|看下|列�
 _RIGID_QUERY = re.compile(r"(?:查|查看|看看|看下|列出|有哪些|还有哪些|日历|课表|行程|schedule|calendar|list|show)", re.I)
 _QUERY_SUBJECT = re.compile(r"任务|事情|待办|作业|规划|计划|task|deadline|截止", re.I)
 _RIGID_QUERY_SUBJECT = re.compile(r"刚性(?:事件|安排|日程)?|固定(?:时间|日程|安排|事件)|日程(?:安排)?|课程|课表|会议|预约|日历|行程|schedule|calendar|events?", re.I)
+_FLEXIBLE_QUERY_KIND = re.compile(r"柔性|待完成事项|没有固定开始(?:时间|时刻)", re.I)
+_QUERY_KIND_CLARIFICATION = re.compile(r"柔性任务.{0,30}固定时间的日程|固定时间的日程.{0,30}柔性任务", re.I)
+_RIGID_QUERY_RESULT = re.compile(r"(?:接下来七天|未来七天).{0,40}刚性日程|已查询的刚性日程|刚性日程：", re.I)
 _IMAGE_SCHEDULE_REQUEST = re.compile(
     r"(?:提取|识别|导入|整理|读取|解析).{0,40}(?:日程|安排|日历|课表|课程|活动|事件)|"
     r"(?:日程|安排|日历|课表|课程|活动|事件).{0,40}(?:提取|识别|导入|整理|读取|解析|生成|添加)|"
@@ -546,6 +549,43 @@ def _user_intent(text: str) -> str | None:
     return matched[0] if len(matched) == 1 else None
 
 
+def _contextual_query_intent(messages: list[dict[str, Any]]) -> str | None:
+    """Resolve a short rigid/flexible choice only against the immediately prior turn."""
+    user_indices = [index for index, item in enumerate(messages)
+                    if isinstance(item, dict) and item.get("role") == "user"
+                    and isinstance(item.get("content"), str)]
+    if not user_indices:
+        return None
+    current_index = user_indices[-1]
+    current_text = messages[current_index]["content"].strip()
+    if (not current_text or len(current_text) > 48
+            or _DENIAL.search(current_text) or _HYPOTHETICAL.search(current_text)
+            or current_index < 2 or messages[current_index - 1].get("role") != "assistant"):
+        return None
+    assistant_text = messages[current_index - 1].get("content")
+    if not isinstance(assistant_text, str):
+        return None
+    if (_QUERY_KIND_CLARIFICATION.search(assistant_text)
+            and _FLEXIBLE_QUERY_KIND.search(current_text)
+            and not _RIGID_QUERY_SUBJECT.search(current_text)):
+        return "query_flexible_tasks"
+    if (_QUERY_KIND_CLARIFICATION.search(assistant_text)
+            and _RIGID_QUERY_SUBJECT.search(current_text)
+            and not _FLEXIBLE_QUERY_KIND.search(current_text)):
+        return "query_rigid_events"
+    prior_user_index = next((index for index in reversed(user_indices[:-1])
+                             if index < current_index - 1), None)
+    if prior_user_index is None:
+        return None
+    prior_text = messages[prior_user_index]["content"]
+    if (_user_intent(prior_text) == "query_rigid_events"
+            and _RIGID_QUERY_RESULT.search(assistant_text)
+            and _FLEXIBLE_QUERY_KIND.search(current_text)
+            and not _RIGID_QUERY_SUBJECT.search(current_text)):
+        return "query_flexible_tasks"
+    return None
+
+
 def _records_are_query_target(request: str, record_words: re.Pattern[str]) -> bool:
     """A UI noun after a record noun makes the UI, rather than records, the target."""
     records = list(record_words.finditer(request))
@@ -800,9 +840,13 @@ class AssistantService:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("assistant clock must return a timezone-aware datetime")
         intent = _user_intent(current_text)
+        contextual_query_intent = _contextual_query_intent(messages) if intent is None else None
+        if contextual_query_intent is not None:
+            intent = contextual_query_intent
         image_schedule_authorized = image is not None and _image_schedule_was_authorized(messages)
         if intent == "query_flexible_tasks":
-            if _model_action_has_user_basis(intent, current_text, timezone, now):
+            if (contextual_query_intent == intent
+                    or _model_action_has_user_basis(intent, current_text, timezone, now)):
                 try:
                     records = self.tasks.list(owner_id)
                 except Exception:
@@ -938,7 +982,8 @@ class AssistantService:
             for call_index, call in enumerate(turn.tool_calls):
                 outcome = self._execute(call, intent, owner_id, client_message_id, timezone,
                                         call_index, mutation_used, current_text, now, rigid_event_text,
-                                        queried_rigid_records, image, image_schedule_authorized)
+                                        queried_rigid_records, image, image_schedule_authorized,
+                                        contextual_query_authorized=contextual_query_intent == intent)
                 if call.name == "create_rigid_event_draft" and outcome.status != "succeeded":
                     if image is not None and outcome.status == "clarification_required" and outcome.message:
                         return AssistantResult(outcome.message + "；目前没有保存任何日程。",
@@ -1157,7 +1202,8 @@ class AssistantService:
                  now: datetime, rigid_event_text: str | None = None,
                  queried_rigid_records: list[dict[str, Any]] | None = None,
                  image: ValidatedImage | None = None,
-                 image_schedule_authorized: bool = False) -> AssistantActionResult:
+                 image_schedule_authorized: bool = False,
+                 contextual_query_authorized: bool = False) -> AssistantActionResult:
         if call.name not in _ALLOWED:
             return AssistantActionResult(call.name, "rejected", message="Unsupported action.", internal=True)
         if image is not None and call.name != "create_rigid_event_draft":
@@ -1165,9 +1211,12 @@ class AssistantService:
                 message="Image analysis may only create an uncommitted rigid-event draft; other actions are disabled.",
                 internal=True)
         basis_text = rigid_event_text if call.name == "create_rigid_event_draft" else current_user_text
-        if not _model_action_has_user_basis(call.name, basis_text or current_user_text, timezone, now,
-                                            image_attached=image is not None,
-                                            image_schedule_authorized=image_schedule_authorized):
+        contextual_read = (contextual_query_authorized and intent == call.name
+                           and call.name in {"query_flexible_tasks", "query_rigid_events"})
+        if (not contextual_read
+                and not _model_action_has_user_basis(call.name, basis_text or current_user_text,
+                    timezone, now, image_attached=image is not None,
+                    image_schedule_authorized=image_schedule_authorized)):
             return AssistantActionResult(call.name, "rejected",
                 message="This action is not supported by the user's current request.", internal=True)
         if call.name in {"create_flexible_task", "update_flexible_task", "delete_flexible_task"} and mutation_used:
