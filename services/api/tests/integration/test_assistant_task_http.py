@@ -267,7 +267,8 @@ def test_assistant_task_write_and_query_return_structured_persisted_records(tmp_
             "messages": [{"role": "user", "content": "列出我的规划"}],
         })
     assert queried.status_code == 200
-    task_result = queried.json()["action_results"][0]
+    task_result = next(item for item in queried.json()["action_results"]
+                       if item["action"] == "query_flexible_tasks")
     assert task_result["status"] == "succeeded"
     assert len(task_result["data"]) == 1
     assert task_result["data"][0]["task_id"] == created_result["data"]["task_id"]

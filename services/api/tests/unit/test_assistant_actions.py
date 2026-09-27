@@ -1358,3 +1358,31 @@ def test_both_query_retains_success_when_other_source_is_unavailable():
     assert result.action_results[1].status == 'succeeded'
     assert '高数作业' in result.answer and '暂时无法读取' in result.answer
     assert '没有已保存的刚性日程' not in result.answer
+
+
+@pytest.mark.parametrize('text, expected', [
+    ('我有哪些规划', 'query_all_schedules'),
+    ('查看我的计划', 'query_all_schedules'),
+    ('我有哪些固定规划', 'query_rigid_events'),
+    ('查看我的固定计划', 'query_rigid_events'),
+    ('我有哪些柔性规划', 'query_flexible_tasks'),
+])
+def test_schedule_plan_query_classification(text, expected):
+    assert _user_intent(text) == expected
+
+
+@pytest.mark.parametrize('text, task_reads', [('我有哪些规划', 1), ('我有哪些固定规划', 0)])
+def test_plan_queries_cannot_be_redirected_to_flexible_only(text, task_reads):
+    class Events:
+        def __init__(self): self.reads = 0
+        def list_occurrences(self, *args):
+            self.reads += 1
+            return []
+    events, tasks = Events(), FakeTasks()
+    model = FakeModel(ModelTurn('没有柔性任务', [tool('query_flexible_tasks', {})]))
+    result = AssistantService(model, tasks, rigid_events=events).handle(
+        'owner-a', 'plan-query', 'Asia/Shanghai', [{'role': 'user', 'content': text}])
+    assert events.reads == 1
+    assert tasks.listed == task_reads
+    assert result.action_results[0].action == 'query_rigid_events'
+    assert model.calls == []

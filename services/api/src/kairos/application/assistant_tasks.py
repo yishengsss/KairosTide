@@ -266,7 +266,7 @@ _ASSISTANT_PROPOSED_TIME = re.compile(r"(?:也就是|即|开始(?:时间)?(?:是
 _QUERY = re.compile(r"(?:查询|查(?:一下|查|到)?|查看|看看|看下|列出|列一下|告诉我|有哪些|还有哪些|有什么|我还剩|快截止|临近截止|未完成|待办|能否|能不能|可以(?:吗)?|可不可以|吗|么|deadline|list my|show my|what tasks)", re.I)
 _RIGID_QUERY = re.compile(r"(?:查|查看|看看|看下|列出|有哪些|还有哪些|日历|课表|行程|schedule|calendar|list|show)", re.I)
 _QUERY_SUBJECT = re.compile(r"任务|事情|待办|作业|规划|计划|task|deadline|截止", re.I)
-_RIGID_QUERY_SUBJECT = re.compile(r"刚性(?:事件|安排|日程)?|固定(?:时间|日程|安排|事件)|日程(?:安排)?|课程|课表|会议|预约|日历|行程|schedule|calendar|events?", re.I)
+_RIGID_QUERY_SUBJECT = re.compile(r"刚性(?:事件|安排|日程)?|固定(?:时间|日程|安排|事件|规划|计划|任务)|日程(?:安排)?|课程|课表|会议|预约|日历|行程|schedule|calendar|events?", re.I)
 _FLEXIBLE_QUERY_KIND = re.compile(r"柔性|待完成事项|没有固定开始(?:时间|时刻)", re.I)
 _QUERY_KIND_CLARIFICATION = re.compile(r"柔性任务.{0,30}固定时间的日程|固定时间的日程.{0,30}柔性任务", re.I)
 _RIGID_QUERY_RESULT = re.compile(r"(?:接下来七天|未来七天).{0,40}刚性日程|已查询的刚性日程|刚性日程：", re.I)
@@ -521,6 +521,12 @@ def _user_intent(text: str) -> str | None:
     """Conservative action-class check against the current user message only."""
     if _DENIAL.search(text):
         return None
+    if (re.search(r"规划|计划", text) and _READ_REQUEST.search(text)
+            and _PERSONAL_RECORD_SCOPE.search(text)
+            and not _RIGID_QUERY_SUBJECT.search(text) and not _FLEXIBLE_QUERY_KIND.search(text)
+            and not _HYPOTHETICAL.search(text) and not _VIEW_TARGET.search(text)
+            and not _HOW_TO_QUESTION.search(text)):
+        return "query_all_schedules"
     task_subject = _QUERY_SUBJECT.search(text) is not None
     rigid_subject = _RIGID_QUERY_SUBJECT.search(text) is not None
     explicit_query = ((_QUERY.search(text) and task_subject) or _QUERY_NOW_DO.search(text))
@@ -855,11 +861,17 @@ class AssistantService:
         if contextual_query_intent is not None:
             intent = contextual_query_intent
         image_schedule_authorized = image is not None and _image_schedule_was_authorized(messages)
-        if contextual_query_intent == "query_all_schedules" and image is None:
+        if image is None and (intent == "query_all_schedules" or (
+                intent == "query_rigid_events" and re.search(r"固定(?:时间)?(?:规划|计划|安排|日程)", current_text)
+                and not _RIGID_CHANGE_ACTION.search(current_text)
+                and (contextual_query_intent == intent or _model_action_has_user_basis(
+                    intent, current_text, timezone, now)))):
             outcomes = []
             answers = []
-            for action, label in (("query_rigid_events", "固定时间日程"),
-                                  ("query_flexible_tasks", "柔性任务")):
+            queries = [("query_rigid_events", "固定时间日程")]
+            if intent == "query_all_schedules":
+                queries.append(("query_flexible_tasks", "柔性任务"))
+            for action, label in queries:
                 outcome = self._execute(
                     ToolCall(call_id=f"server-{action}", name=action, arguments_json="{}"),
                     action, owner_id, client_message_id, timezone, 0, False,
