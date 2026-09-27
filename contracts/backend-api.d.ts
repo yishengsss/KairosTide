@@ -831,6 +831,8 @@ export interface components {
             items: components["schemas"]["ConversationMessage"][];
             /** Next Cursor */
             next_cursor: string | null;
+            /** Pending Client Message Id */
+            pending_client_message_id?: string | null;
             /** Revision */
             revision: number;
         };

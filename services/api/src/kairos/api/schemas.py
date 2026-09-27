@@ -349,6 +349,7 @@ class MessagePage(DTO):
     next_cursor: str | None
     draft_refs: list[str]
     revision: int
+    pending_client_message_id: str | None = None
 
 
 class AssistantChatMessage(DTO):

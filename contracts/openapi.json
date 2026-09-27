@@ -1354,6 +1354,17 @@
             ],
             "title": "Next Cursor"
           },
+          "pending_client_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Client Message Id"
+          },
           "revision": {
             "title": "Revision",
             "type": "integer"
