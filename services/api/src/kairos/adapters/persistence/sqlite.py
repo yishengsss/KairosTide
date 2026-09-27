@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -35,6 +36,28 @@ def _json(data) -> str:
 
 def _hash(data) -> str:
     return hashlib.sha256(_json(data).encode()).hexdigest()
+
+
+_IMAGE_URL = re.compile(r"https?://[^\s\"'<>?#]+\.(?:png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#\s\"'<>)]|$)", re.I)
+
+
+def _reject_image_material(value) -> None:
+    """Keep transient image payloads and references out of conversation rows."""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raise ValueError("image material cannot be persisted in conversations")
+    if isinstance(value, str):
+        if "data:image/" in value.lower() or value.lower().startswith("image/") or _IMAGE_URL.search(value):
+            raise ValueError("image material cannot be persisted in conversations")
+    elif isinstance(value, dict):
+        for key, nested in value.items():
+            if isinstance(key, str):
+                label = key.lower().replace("_", "").replace("-", "")
+                if label in {"image", "imageurl", "imagedata", "imagebase64", "database64", "attachment"}:
+                    raise ValueError("image material cannot be persisted in conversations")
+            _reject_image_material(nested)
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            _reject_image_material(nested)
 
 
 def _recurrence_to_data(rule: RecurrenceRule | None):
@@ -346,6 +369,7 @@ class SqliteRepository:
     def reserve_conversation_turn(self, owner_id: str, conversation_id: str, client_message_id: str,
                                   content: str, timezone: str, expected_sequence: int,
                                   request_hash: str) -> ConversationTurn:
+        _reject_image_material(content)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             conversation = self._owned_conversation(connection, owner_id, conversation_id)
@@ -400,6 +424,9 @@ class SqliteRepository:
                 raise ConversationNotFound(client_message_id)
             if row["status"] == "completed":
                 return self._conversation_turn_from_row(connection, row, conversation["revision"])
+            _reject_image_material(assistant_content)
+            _reject_image_material(action_results)
+            _reject_image_material(draft_refs)
             now = _iso(datetime.now(UTC))
             assistant_id = f"msg_{uuid4().hex}"
             response = {"assistant_message_id": assistant_id, "content": assistant_content,

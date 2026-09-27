@@ -100,3 +100,41 @@ def test_transport_exposes_stored_status_and_rejects_client_history():
     page = MessagePage.model_validate({"items": [user.model_dump()], "next_cursor": None,
                                        "draft_refs": [], "revision": 1})
     assert response.status == page.items[0].status == "pending"
+
+
+@pytest.mark.parametrize("action_results", [
+    [{"payload": b"image bytes"}],
+    [{"payload": bytearray(b"image bytes")}],
+    [{"payload": memoryview(b"image bytes")}],
+    [{"nested": {"result": "data:image/png;base64,aW1hZ2U="}}],
+    [{"link": "https://example.test/private-photo.png?token=secret"}],
+    [{"image_url": "https://example.test/opaque?id=123"}],
+    [{"imageUrl": "https://example.test/opaque?id=123"}],
+    [{"mime_type": "image/jpeg", "url": "https://example.test/opaque?id=123"}],
+])
+def test_completion_rejects_image_material_without_persisting_it(tmp_path, action_results):
+    store = SqliteRepository(tmp_path / "conversation.db")
+    cid = store.create_conversation("alice", "create", "hash").conversation_id
+    store.reserve_conversation_turn("alice", cid, "m1", "What is in this image?", "UTC", 0, "h1")
+
+    with pytest.raises(ValueError, match="image"):
+        store.complete_conversation_turn("alice", cid, "m1", "An answer", action_results, [])
+
+    page = store.list_conversation_messages("alice", cid, 0, 10)
+    assert len(page.items) == 1
+    assert page.items[0].status == "pending"
+    assert store.get_conversation("alice", cid).revision == 1
+    with store._connect() as connection:
+        assert connection.execute("SELECT response_json FROM conversation_turns WHERE conversation_id = ?", (cid,)).fetchone()[0] is None
+
+
+def test_message_text_rejects_embedded_image_data_url(tmp_path):
+    store = SqliteRepository(tmp_path / "conversation.db")
+    cid = store.create_conversation("alice", "create", "hash").conversation_id
+    with pytest.raises(ValueError, match="image"):
+        store.reserve_conversation_turn("alice", cid, "m1", "data:image/png;base64,aW1hZ2U=", "UTC", 0, "h1")
+    assert store.list_conversation_messages("alice", cid, 0, 10).items == []
+    store.reserve_conversation_turn("alice", cid, "m1", "Tell me about this", "UTC", 0, "h2")
+    with pytest.raises(ValueError, match="image"):
+        store.complete_conversation_turn("alice", cid, "m1", "See https://example.test/photo.webp", [], [])
+    assert store.list_conversation_messages("alice", cid, 0, 10).items[0].status == "pending"
