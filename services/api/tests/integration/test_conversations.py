@@ -1,3 +1,4 @@
+import base64
 import sqlite3
 
 import pytest
@@ -111,6 +112,9 @@ def test_transport_exposes_stored_status_and_rejects_client_history():
     [{"image_url": "https://example.test/opaque?id=123"}],
     [{"imageUrl": "https://example.test/opaque?id=123"}],
     [{"mime_type": "image/jpeg", "url": "https://example.test/opaque?id=123"}],
+    [{"url": "https://example.test/media/123"}],
+    [{"payload": base64.b64encode(b"image bytes").decode()}],
+    [{"data": base64.b64encode(b"raw image content " * 20).decode()}],
 ])
 def test_completion_rejects_image_material_without_persisting_it(tmp_path, action_results):
     store = SqliteRepository(tmp_path / "conversation.db")

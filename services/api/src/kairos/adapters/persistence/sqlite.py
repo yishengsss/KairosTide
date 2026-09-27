@@ -39,25 +39,33 @@ def _hash(data) -> str:
 
 
 _IMAGE_URL = re.compile(r"https?://[^\s\"'<>?#]+\.(?:png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#\s\"'<>)]|$)", re.I)
+_ENCODED_PAYLOAD = re.compile(r"[A-Za-z0-9+/]{126,}={0,2}")
 
 
-def _reject_image_material(value) -> None:
+def _reject_image_material(value, *, action_result: bool = False) -> None:
     """Keep transient image payloads and references out of conversation rows."""
     if isinstance(value, (bytes, bytearray, memoryview)):
         raise ValueError("image material cannot be persisted in conversations")
     if isinstance(value, str):
-        if "data:image/" in value.lower() or value.lower().startswith("image/") or _IMAGE_URL.search(value):
+        encoded = value.strip()
+        looks_encoded = (len(encoded) >= 128 and len(encoded) % 4 == 0
+                         and _ENCODED_PAYLOAD.fullmatch(encoded) is not None
+                         and re.fullmatch(r"[0-9a-fA-F]+", encoded) is None)
+        if ("data:image/" in value.lower() or value.lower().startswith("image/")
+                or _IMAGE_URL.search(value) or looks_encoded
+                or (action_result and re.search(r"https?://", value, re.I))):
             raise ValueError("image material cannot be persisted in conversations")
     elif isinstance(value, dict):
         for key, nested in value.items():
             if isinstance(key, str):
                 label = key.lower().replace("_", "").replace("-", "")
-                if label in {"image", "imageurl", "imagedata", "imagebase64", "database64", "attachment"}:
+                if label in {"image", "imageurl", "imagedata", "imagebase64", "database64",
+                             "attachment", "payload", "blob", "bytes", "file"}:
                     raise ValueError("image material cannot be persisted in conversations")
-            _reject_image_material(nested)
+            _reject_image_material(nested, action_result=action_result)
     elif isinstance(value, (list, tuple)):
         for nested in value:
-            _reject_image_material(nested)
+            _reject_image_material(nested, action_result=action_result)
 
 
 def _recurrence_to_data(rule: RecurrenceRule | None):
@@ -425,7 +433,7 @@ class SqliteRepository:
             if row["status"] == "completed":
                 return self._conversation_turn_from_row(connection, row, conversation["revision"])
             _reject_image_material(assistant_content)
-            _reject_image_material(action_results)
+            _reject_image_material(action_results, action_result=True)
             _reject_image_material(draft_refs)
             now = _iso(datetime.now(UTC))
             assistant_id = f"msg_{uuid4().hex}"
