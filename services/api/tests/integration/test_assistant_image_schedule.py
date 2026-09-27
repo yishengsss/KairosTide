@@ -20,11 +20,18 @@ class FixedModel:
     def __init__(self, arguments):
         self.arguments = arguments
         self.messages = []
+        self.tools = []
 
     def complete(self, messages, tools):
         self.messages = messages
+        self.tools = tools
         return ModelTurn(None, (ToolCall(call_id="image-tool", name="create_rigid_event_draft",
             arguments_json=json.dumps(self.arguments, ensure_ascii=False)),))
+
+
+class EmptyTurnModel:
+    def complete(self, messages, tools):
+        return ModelTurn(None, ())
 
 
 class FixedClock:
@@ -38,10 +45,11 @@ def encoded_png():
     return base64.b64encode(output.getvalue()).decode()
 
 
-def post_image(client, key="image", prompt="请识别这张课表并生成待确认日程。", timezone="Asia/Shanghai"):
+def post_image(client, key="image", prompt="请识别这张课表并生成待确认日程。", timezone="Asia/Shanghai",
+               messages=None):
     return client.post("/api/v1/assistant/chat", json={
         "client_message_id": key, "timezone": timezone,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages or [{"role": "user", "content": prompt}],
         "image": {"mime_type": "image/png", "data_base64": encoded_png()},
     })
 
@@ -67,6 +75,7 @@ def test_timetable_image_creates_uncommitted_multi_candidate_draft(tmp_path):
     assert body.get("retain_image", False) is False
     assert body["action_results"][0]["data"]["existing_schedule_matches"] == []
     assert SqliteRepository(db).list_events("local") == []
+    assert [item["function"]["name"] for item in model.tools] == ["create_rigid_event_draft"]
     user_content = next(item["content"] for item in model.messages if item["role"] == "user")
     assert isinstance(user_content, list)
     assert any(part.get("type") == "image_url" for part in user_content)
@@ -85,6 +94,60 @@ def test_missing_timetable_term_dates_asks_and_retains_attachment(tmp_path):
     assert body["draft"] is None
     assert body["retain_image"] is True
     assert "开始日期和结束日期" in body["answer"]
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_image_turn_without_tool_call_has_specific_recoverable_feedback(tmp_path):
+    app = create_app(str(tmp_path / "image-empty-turn.sqlite3"), owner_id="local",
+                     clock=FixedClock(), assistant_task_model=EmptyTurnModel())
+    with TestClient(app) as client:
+        response = post_image(client, "image-empty-turn")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["retain_image"] is True
+    assert "课表图片" in body["answer"]
+    assert "固定安排还是待完成事项" not in body["answer"]
+    assert SqliteRepository(tmp_path / "image-empty-turn.sqlite3").list_events("local") == []
+
+
+def test_image_import_followup_keeps_explicit_user_authorization(tmp_path):
+    model = FixedModel({"events": [{"title": "软件工程", "frequency": "weekly", "weekdays": [1],
+        "starts_on": "2026-09-28", "ends_on": "2026-12-28",
+        "start_time": "14:00", "end_time": "15:40"}]})
+    app = create_app(str(tmp_path / "image-followup.sqlite3"), owner_id="local",
+                     clock=FixedClock(), assistant_task_model=model)
+    history = [
+        {"role": "user", "content": "请识别这张课表并生成待确认日程。"},
+        {"role": "assistant", "content": "请说明这是固定安排还是待完成事项。"},
+        {"role": "user", "content": "固定事件安排"},
+    ]
+    with TestClient(app) as client:
+        response = post_image(client, "image-followup", prompt="固定事件安排", messages=history)
+
+    assert response.status_code == 200
+    assert response.json()["draft"]["status"] == "ready"
+    assert response.json()["draft"]["candidates"][0]["title"] == "软件工程"
+    assert SqliteRepository(tmp_path / "image-followup.sqlite3").list_events("local") == []
+
+
+def test_old_schedule_request_does_not_authorize_a_new_unrelated_image(tmp_path):
+    model = FixedModel({"events": [{"title": "不应保存", "frequency": "weekly", "weekdays": [1],
+        "starts_on": "2026-09-28", "ends_on": "2026-12-28",
+        "start_time": "14:00", "end_time": "15:40"}]})
+    db = tmp_path / "image-new-topic.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    history = [
+        {"role": "user", "content": "请识别这张课表并生成待确认日程。"},
+        {"role": "assistant", "content": "上一次课表导入已处理完成。"},
+        {"role": "user", "content": "另外看看这张图里是什么。"},
+    ]
+    with TestClient(app) as client:
+        response = post_image(client, "image-new-topic", prompt="另外看看这张图里是什么。", messages=history)
+
+    assert response.status_code == 200
+    assert response.json()["draft"] is None
+    assert len(model.tools) > 1
     assert SqliteRepository(db).list_events("local") == []
 
 
