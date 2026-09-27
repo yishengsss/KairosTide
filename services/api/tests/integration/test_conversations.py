@@ -115,6 +115,7 @@ def test_transport_exposes_stored_status_and_rejects_client_history():
     [{"url": "https://example.test/media/123"}],
     [{"payload": base64.b64encode(b"image bytes").decode()}],
     [{"data": base64.b64encode(b"raw image content " * 20).decode()}],
+    [{"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="}],
 ])
 def test_completion_rejects_image_material_without_persisting_it(tmp_path, action_results):
     store = SqliteRepository(tmp_path / "conversation.db")
@@ -142,3 +143,14 @@ def test_message_text_rejects_embedded_image_data_url(tmp_path):
     with pytest.raises(ValueError, match="image"):
         store.complete_conversation_turn("alice", cid, "m1", "See https://example.test/photo.webp", [], [])
     assert store.list_conversation_messages("alice", cid, 0, 10).items[0].status == "pending"
+
+
+def test_completion_keeps_normal_structured_tool_result(tmp_path):
+    store = SqliteRepository(tmp_path / "conversation.db")
+    cid = store.create_conversation("alice", "create", "hash").conversation_id
+    store.reserve_conversation_turn("alice", cid, "m1", "上海天气如何？", "Asia/Shanghai", 0, "h1")
+    result = [{"action": "query_weather", "status": "succeeded",
+               "data": {"source": "Open-Meteo", "availability": "available", "temperature_c": 22.5},
+               "message": None}]
+    completed = store.complete_conversation_turn("alice", cid, "m1", "上海当前 22.5°C。", result, [])
+    assert completed.action_results == result

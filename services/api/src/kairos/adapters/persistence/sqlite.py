@@ -1,5 +1,7 @@
 """Owner-scoped SQLite store with atomic draft commit and stable occurrences."""
 
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -51,8 +53,20 @@ def _reject_image_material(value, *, action_result: bool = False) -> None:
         looks_encoded = (len(encoded) >= 128 and len(encoded) % 4 == 0
                          and _ENCODED_PAYLOAD.fullmatch(encoded) is not None
                          and re.fullmatch(r"[0-9a-fA-F]+", encoded) is None)
+        encoded_image = False
+        if len(encoded) >= 12 and len(encoded) % 4 == 0 and re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", encoded):
+            try:
+                decoded = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError):
+                pass
+            else:
+                encoded_image = (decoded.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a",
+                                                     b"GIF89a", b"BM", b"II*\x00", b"MM\x00*"))
+                                 or decoded[8:12] == b"WEBP"
+                                 or decoded[4:12] in {b"ftypavif", b"ftypheic", b"ftypheix"}
+                                 or decoded.lstrip().startswith(b"<svg"))
         if ("data:image/" in value.lower() or value.lower().startswith("image/")
-                or _IMAGE_URL.search(value) or looks_encoded
+                or _IMAGE_URL.search(value) or looks_encoded or encoded_image
                 or (action_result and re.search(r"https?://", value, re.I))):
             raise ValueError("image material cannot be persisted in conversations")
     elif isinstance(value, dict):
