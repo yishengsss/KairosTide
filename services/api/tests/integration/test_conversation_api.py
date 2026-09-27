@@ -203,6 +203,26 @@ def test_historical_draft_is_not_acknowledged_after_unrelated_assistant_reply(tm
     assert repository.get_draft("owner-a", draft.draft_id).status == "committed"
 
 
+def test_confirmation_receipt_is_not_reacknowledged(tmp_path, monkeypatch):
+    db = tmp_path / "duplicate-receipt.sqlite3"
+    repository, conversation, draft = seed_committed_draft_conversation(db)
+    repository.reserve_conversation_turn("owner-a", conversation.conversation_id,
+        "prior-receipt", "确认保存", "Asia/Shanghai", 2, "receipt-hash")
+    repository.complete_conversation_turn("owner-a", conversation.conversation_id,
+        "prior-receipt", "已保存这份日程，请核对。", [{
+            "action": "confirm_rigid_event_draft", "status": "succeeded",
+            "data": {"draft_id": draft.draft_id},
+        }], [draft.draft_id])
+    model = RecordingModel("这项日程已在刚才的操作中保存。")
+    monkeypatch.delenv("MIMO_API_KEY", raising=False)
+    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
+                               assistant_task_model=model)) as client:
+        response = send(client, conversation.conversation_id, "duplicate-confirm", "确认", 4)
+    assert response.status_code == 200
+    assert response.json()["answer"]["content"] == "这项日程已在刚才的操作中保存。"
+    assert len(model.calls) == 1
+
+
 def test_pending_same_id_resumes_but_new_message_and_stale_sequence_conflict(tmp_path):
     class FailOnceModel(RecordingModel):
         def complete(self, messages, tools):

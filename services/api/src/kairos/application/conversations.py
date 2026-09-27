@@ -154,6 +154,9 @@ class ConversationService:
         if (latest_assistant is None or not latest_assistant.draft_refs
                 or not re.search(r"确认|核对", latest_assistant.content)):
             return None
+        if any(result.get("action") == "confirm_rigid_event_draft"
+               for result in latest_assistant.action_results):
+            return None
         return latest_assistant.draft_refs[-1]
 
     def _history_for_context(self, owner_id: str, conversation_id: str,
