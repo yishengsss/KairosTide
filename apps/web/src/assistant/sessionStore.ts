@@ -110,6 +110,7 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
     imageError: '',
     messages: [] as AssistantMessage[],
     draft: null as DraftResponse | null,
+    draftMessageIndex: null as number | null,
     draftConflict: null as DraftConflictReview | null,
     pending: null as 'sending' | 'confirming' | null,
     proposalPendingId: null as string | null,
@@ -177,6 +178,9 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
       state.draftConflict = null
     }
     state.draft = draft
+    state.draftMessageIndex = draft
+      ? state.messages.map(message => message.role).lastIndexOf('assistant')
+      : null
   }
   function setActiveNotice(text: string) { state.activeNotice = text }
   function clearError() { state.error = '' }

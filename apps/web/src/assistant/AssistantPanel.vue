@@ -61,10 +61,13 @@ function returnToScene() {
         <div class="assistant-scroll" role="region" aria-labelledby="kairos-assistant-title">
           <Conversation :messages="session.state.messages" :proposal-commits="session.state.proposalCommits"
             :proposal-pending-id="session.state.proposalPendingId" :proposal-errors="session.state.proposalErrors"
-            @confirm-proposal="session.confirmProposal" />
-          <DraftReview v-if="session.state.draft" :draft="session.state.draft"
-            :conflict-pairs="session.state.draftConflict?.pairs" :pending="session.state.pending === 'confirming'"
-            @confirm="session.confirmDraft" />
+            @confirm-proposal="session.confirmProposal">
+            <template #draft="{ index }">
+              <DraftReview v-if="session.state.draft && index === session.state.draftMessageIndex"
+                :draft="session.state.draft" :conflict-pairs="session.state.draftConflict?.pairs"
+                :pending="session.state.pending === 'confirming'" @confirm="session.confirmDraft" />
+            </template>
+          </Conversation>
         </div>
         <p v-if="session.state.error" class="assistant-error" role="alert">{{ session.state.error }}</p>
         <Composer ref="composer" :value="session.state.input" :image="session.state.image"

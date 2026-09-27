@@ -127,6 +127,7 @@ function displayEventTime(record: Record<string, unknown>): string {
             <span v-if="displayDeadline(records(result)[0])"> · 截止 {{ displayDeadline(records(result)[0]) }}</span>
           </p>
         </section>
+        <slot name="draft" :index="index" />
       </li>
     </ol>
   </section>

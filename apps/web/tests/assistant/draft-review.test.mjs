@@ -54,6 +54,7 @@ test('open panel exposes conversation, unsent text, draft and a light event noti
   session.open()
   session.setInput('还没发送的原文')
   session.setActiveNotice('高数课正在进行')
+  session.state.messages.push({ role: 'assistant', content: '已生成待确认草稿。' })
   session.setDraft({
     draft_id: 'd1', revision: 1, status: 'needs_clarification', confirmation_digest: null,
     expires_at: '2026-09-29T16:00:00+08:00', reference_now: '2026-09-26T10:00:00+08:00',
@@ -69,6 +70,27 @@ test('open panel exposes conversation, unsent text, draft and a light event noti
   assert.match(html, /请补充地点/)
   assert.match(html, /关闭助手/)
   assert.match(html, /回到场景/)
+})
+
+test('draft table and confirm button appear inside the assistant reply that introduced the draft', async () => {
+  const { default: AssistantPanel } = await vite.ssrLoadModule('/src/assistant/AssistantPanel.vue')
+  const { createAssistantSession } = await vite.ssrLoadModule('/src/assistant/sessionStore.ts')
+  const session = createAssistantSession()
+  session.open()
+  session.state.messages.push({ role: 'assistant', content: '请核对图片中识别出的课程。' })
+  session.setDraft({
+    draft_id: 'd-inline', revision: 1, status: 'ready', confirmation_digest: 'digest',
+    expires_at: '2026-09-29T16:00:00+08:00', reference_now: '2026-09-26T10:00:00+08:00',
+    questions: [], related_action_ids: [], candidates: [candidate('inline')],
+  })
+  const html = await renderToString(createSSRApp(AssistantPanel, { session }))
+  const assistantMessageStart = html.indexOf('class="conversation-message assistant"')
+  const assistantMessageEnd = html.indexOf('</li>', assistantMessageStart)
+  const draftReview = html.indexOf('class="draft-review"')
+  assert.ok(assistantMessageStart >= 0)
+  assert.ok(draftReview > assistantMessageStart && draftReview < assistantMessageEnd,
+    'draft review should be nested in the assistant message, not detached below the conversation')
+  assert.match(html, /确认保存全部项目/)
 })
 
 test('closed panel is inert and does not expose draft as page content', async () => {
