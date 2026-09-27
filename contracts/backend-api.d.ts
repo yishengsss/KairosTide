@@ -842,6 +842,7 @@ export interface components {
             content: string;
             /** Expected Sequence */
             expected_sequence: number;
+            image?: components["schemas"]["AssistantImageAttachment"] | null;
             /** Timezone */
             timezone: string;
         };

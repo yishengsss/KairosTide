@@ -311,11 +311,17 @@ class Conversation(DTO):
     revision: int
 
 
+class AssistantImageAttachment(DTO):
+    mime_type: Literal["image/jpeg", "image/png", "image/webp"]
+    data_base64: str = Field(min_length=1, max_length=14_000_000)
+
+
 class MessageRequest(DTO):
     client_message_id: str = Field(min_length=1)
     content: str = Field(min_length=1, max_length=5000)
     timezone: str = Field(min_length=1)
     expected_sequence: int = Field(ge=0)
+    image: AssistantImageAttachment | None = None
 
 
 class ConversationMessage(DTO):
@@ -348,11 +354,6 @@ class MessagePage(DTO):
 class AssistantChatMessage(DTO):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=5000)
-
-
-class AssistantImageAttachment(DTO):
-    mime_type: Literal["image/jpeg", "image/png", "image/webp"]
-    data_base64: str = Field(min_length=1, max_length=14_000_000)
 
 
 class AssistantChatRequest(DTO):

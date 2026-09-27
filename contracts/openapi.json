@@ -1387,6 +1387,16 @@
             "title": "Expected Sequence",
             "type": "integer"
           },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantImageAttachment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "timezone": {
             "minLength": 1,
             "title": "Timezone",
