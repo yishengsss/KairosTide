@@ -108,6 +108,22 @@ def test_idempotency_header_must_match_client_message_identity(tmp_path):
     assert response.status_code == 422
 
 
+def seed_committed_draft_conversation(db):
+    repository = SqliteRepository(db)
+    conversation = repository.create_conversation("owner-a", "create-seeded", "seed-hash")
+    repository.reserve_conversation_turn("owner-a", conversation.conversation_id,
+        "draft-source", "明天下午两点开会一个小时", "Asia/Shanghai", 0, "source-hash")
+    now = datetime(2026, 9, 27, 9, 40, tzinfo=UTC)
+    candidate = Candidate("candidate-1", "项目会", "会议室", datetime(2026, 9, 28, 6, tzinfo=UTC),
+        datetime(2026, 9, 28, 7, tzinfo=UTC), "Asia/Shanghai")
+    draft = make_draft("draft_committed", "owner-a", 1, "draft-source", now,
+        datetime(2026, 9, 28, 9, 40, tzinfo=UTC), (candidate,), committed=True)
+    repository.save_draft(draft)
+    repository.complete_conversation_turn("owner-a", conversation.conversation_id,
+        "draft-source", "请核对日程草稿。", [], [draft.draft_id])
+    return repository, conversation, draft
+
+
 def test_committed_latest_draft_confirmation_is_acknowledged_without_model(tmp_path, monkeypatch):
     db = tmp_path / "typed-draft-confirm.sqlite3"
     repository = SqliteRepository(db)
@@ -129,10 +145,6 @@ def test_committed_latest_draft_confirmation_is_acknowledged_without_model(tmp_p
                                assistant_task_model=model)) as client:
         response = send(client, conversation.conversation_id, "typed-confirm", "确认", 2)
         page = client.get(f"/api/v1/conversations/{conversation.conversation_id}/messages")
-    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
-                               assistant_task_model=None)) as client:
-        no_assistant = send(client, conversation.conversation_id,
-                            "typed-confirm-no-assistant", "确认", 4)
 
     assert response.status_code == 200
     body = response.json()
@@ -144,8 +156,50 @@ def test_committed_latest_draft_confirmation_is_acknowledged_without_model(tmp_p
     assert body["revision"] == 4
     assert page.json()["pending_client_message_id"] is None
     assert len(model.calls) == 0
-    assert no_assistant.status_code == 200
-    assert no_assistant.json()["answer"]["content"] == "已保存这份日程。"
+    assert repository.get_draft("owner-a", draft.draft_id).status == "committed"
+
+
+def test_committed_confirmation_succeeds_without_assistant_configuration(tmp_path, monkeypatch):
+    db = tmp_path / "typed-confirm-no-assistant.sqlite3"
+    _, conversation, _ = seed_committed_draft_conversation(db)
+    monkeypatch.delenv("MIMO_API_KEY", raising=False)
+    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
+                               assistant_task_model=None)) as client:
+        response = send(client, conversation.conversation_id,
+                        "typed-confirm-no-assistant", "确认", 2)
+    assert response.status_code == 200
+    assert response.json()["answer"]["content"] == "已保存这份日程。"
+
+
+def test_broad_affirmative_is_not_a_typed_draft_confirmation(tmp_path, monkeypatch):
+    db = tmp_path / "broad-affirmative.sqlite3"
+    repository, conversation, draft = seed_committed_draft_conversation(db)
+    model = RecordingModel("这是普通对话回复")
+    monkeypatch.delenv("MIMO_API_KEY", raising=False)
+    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
+                               assistant_task_model=model)) as client:
+        response = send(client, conversation.conversation_id, "broad-yes", "好的", 2)
+    assert response.status_code == 200
+    assert response.json()["answer"]["content"] == "这是普通对话回复"
+    assert len(model.calls) == 1
+    assert repository.get_draft("owner-a", draft.draft_id).status == "committed"
+
+
+def test_historical_draft_is_not_acknowledged_after_unrelated_assistant_reply(tmp_path, monkeypatch):
+    db = tmp_path / "unrelated-reply.sqlite3"
+    repository, conversation, draft = seed_committed_draft_conversation(db)
+    repository.reserve_conversation_turn("owner-a", conversation.conversation_id,
+        "unrelated-question", "讲个笑话", "Asia/Shanghai", 2, "unrelated-hash")
+    repository.complete_conversation_turn("owner-a", conversation.conversation_id,
+        "unrelated-question", "有一天，程序员走进了咖啡店。", [], [])
+    model = RecordingModel("请问你想确认什么？")
+    monkeypatch.delenv("MIMO_API_KEY", raising=False)
+    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
+                               assistant_task_model=model)) as client:
+        response = send(client, conversation.conversation_id, "stale-draft-confirm", "确认", 4)
+    assert response.status_code == 200
+    assert response.json()["answer"]["content"] == "请问你想确认什么？"
+    assert len(model.calls) == 1
     assert repository.get_draft("owner-a", draft.draft_id).status == "committed"
 
 

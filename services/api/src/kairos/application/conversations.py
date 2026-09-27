@@ -23,7 +23,7 @@ from kairos.domain.conversations import (
 MAX_CONTEXT_MESSAGES = 24
 MAX_CONTEXT_CHARS = 32_000
 _EXACT_CONFIRMATION = re.compile(
-    r"^(?:确认|确认吧|是的|对|正确|没错|就这样|可以|好的|好|yes|confirm)[。！!？? ]*$", re.I)
+    r"^(?:确认保存全部项目|确认保存|确认|保存日程|保存)[。！!\s]*$")
 
 
 class ContextTooLarge(ValueError):
@@ -104,7 +104,7 @@ class ConversationService:
             return _message_response(turn)
 
         if image is None and _EXACT_CONFIRMATION.fullmatch(content.strip()):
-            draft_id = self._latest_draft_ref(owner_id, conversation_id)
+            draft_id = self._latest_confirmable_draft_ref(owner_id, conversation_id)
             draft = self.repository.get_draft(owner_id, draft_id) if draft_id else None
             if draft is not None and draft.status == "committed":
                 results = [{"action": "confirm_rigid_event_draft", "status": "succeeded",
@@ -140,17 +140,21 @@ class ConversationService:
             client_message_id, result.answer, action_results, draft_refs)
         return _message_response(completed)
 
-    def _latest_draft_ref(self, owner_id: str, conversation_id: str) -> str | None:
-        latest: str | None = None
+    def _latest_confirmable_draft_ref(self, owner_id: str, conversation_id: str) -> str | None:
+        latest_assistant: ConversationMessageRecord | None = None
         cursor = 0
         while True:
             page = self.repository.list_conversation_messages(owner_id, conversation_id, cursor, 250)
             for message in page.items:
-                if message.draft_refs:
-                    latest = message.draft_refs[-1]
+                if message.role == "assistant":
+                    latest_assistant = message
             if page.next_cursor is None:
-                return latest
+                break
             cursor = page.next_cursor
+        if (latest_assistant is None or not latest_assistant.draft_refs
+                or not re.search(r"确认|核对", latest_assistant.content)):
+            return None
+        return latest_assistant.draft_refs[-1]
 
     def _history_for_context(self, owner_id: str, conversation_id: str,
                              latest_sequence: int) -> list[ConversationMessageRecord]:
