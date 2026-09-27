@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from kairos.adapters.persistence.sqlite import SqliteRepository
 from kairos.application.assistant_tasks import ModelTurn
+from kairos.domain.drafts import Candidate, make_draft
 from kairos.main import create_app
 
 
@@ -104,6 +106,47 @@ def test_idempotency_header_must_match_client_message_identity(tmp_path):
                 "timezone": "Asia/Shanghai", "expected_sequence": 0,
             })
     assert response.status_code == 422
+
+
+def test_committed_latest_draft_confirmation_is_acknowledged_without_model(tmp_path, monkeypatch):
+    db = tmp_path / "typed-draft-confirm.sqlite3"
+    repository = SqliteRepository(db)
+    conversation = repository.create_conversation("owner-a", "create-seeded", "seed-hash")
+    repository.reserve_conversation_turn("owner-a", conversation.conversation_id,
+        "draft-source", "明天下午两点开会一个小时", "Asia/Shanghai", 0, "source-hash")
+    now = datetime(2026, 9, 27, 9, 40, tzinfo=UTC)
+    candidate = Candidate("candidate-1", "项目会", "会议室", datetime(2026, 9, 28, 6, tzinfo=UTC),
+        datetime(2026, 9, 28, 7, tzinfo=UTC), "Asia/Shanghai")
+    draft = make_draft("draft_committed", "owner-a", 1, "draft-source", now,
+        datetime(2026, 9, 28, 9, 40, tzinfo=UTC), (candidate,), committed=True)
+    repository.save_draft(draft)
+    repository.complete_conversation_turn("owner-a", conversation.conversation_id,
+        "draft-source", "请核对日程草稿。", [], [draft.draft_id])
+    model = RecordingModel("模型不应看到这条确认")
+    monkeypatch.delenv("MIMO_API_KEY", raising=False)
+
+    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
+                               assistant_task_model=model)) as client:
+        response = send(client, conversation.conversation_id, "typed-confirm", "确认", 2)
+        page = client.get(f"/api/v1/conversations/{conversation.conversation_id}/messages")
+    with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
+                               assistant_task_model=None)) as client:
+        no_assistant = send(client, conversation.conversation_id,
+                            "typed-confirm-no-assistant", "确认", 4)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"]["content"] == "已保存这份日程。"
+    assert body["tool_results"] == [{
+        "action": "confirm_rigid_event_draft", "status": "succeeded",
+        "data": {"draft_id": draft.draft_id}, "message": None,
+    }]
+    assert body["revision"] == 4
+    assert page.json()["pending_client_message_id"] is None
+    assert len(model.calls) == 0
+    assert no_assistant.status_code == 200
+    assert no_assistant.json()["answer"]["content"] == "已保存这份日程。"
+    assert repository.get_draft("owner-a", draft.draft_id).status == "committed"
 
 
 def test_pending_same_id_resumes_but_new_message_and_stale_sequence_conflict(tmp_path):

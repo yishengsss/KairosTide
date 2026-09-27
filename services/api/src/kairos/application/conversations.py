@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from typing import Any
@@ -21,6 +22,8 @@ from kairos.domain.conversations import (
 
 MAX_CONTEXT_MESSAGES = 24
 MAX_CONTEXT_CHARS = 32_000
+_EXACT_CONFIRMATION = re.compile(
+    r"^(?:确认|确认吧|是的|对|正确|没错|就这样|可以|好的|好|yes|confirm)[。！!？? ]*$", re.I)
 
 
 class ContextTooLarge(ValueError):
@@ -85,8 +88,6 @@ class ConversationService:
     def append_turn(self, owner_id: str, conversation_id: str, client_message_id: str,
                     content: str, timezone: str, expected_sequence: int,
                     image: ValidatedImage | None = None) -> dict[str, Any]:
-        if self.assistant is None:
-            raise RuntimeError("assistant is not configured")
         if not client_message_id or len(client_message_id) > 200:
             raise ValueError("invalid client message ID")
         if not content.strip():
@@ -101,6 +102,19 @@ class ConversationService:
             content, timezone, expected_sequence, request_hash)
         if turn.status == "completed":
             return _message_response(turn)
+
+        if image is None and _EXACT_CONFIRMATION.fullmatch(content.strip()):
+            draft_id = self._latest_draft_ref(owner_id, conversation_id)
+            draft = self.repository.get_draft(owner_id, draft_id) if draft_id else None
+            if draft is not None and draft.status == "committed":
+                results = [{"action": "confirm_rigid_event_draft", "status": "succeeded",
+                            "data": {"draft_id": draft.draft_id}, "message": None}]
+                completed = self.repository.complete_conversation_turn(owner_id, conversation_id,
+                    client_message_id, "已保存这份日程。", results, [draft.draft_id])
+                return _message_response(completed)
+
+        if self.assistant is None:
+            raise RuntimeError("assistant is not configured")
 
         messages = self._history_for_context(owner_id, conversation_id,
                                              turn.user_message.sequence)
@@ -125,6 +139,18 @@ class ConversationService:
         completed = self.repository.complete_conversation_turn(owner_id, conversation_id,
             client_message_id, result.answer, action_results, draft_refs)
         return _message_response(completed)
+
+    def _latest_draft_ref(self, owner_id: str, conversation_id: str) -> str | None:
+        latest: str | None = None
+        cursor = 0
+        while True:
+            page = self.repository.list_conversation_messages(owner_id, conversation_id, cursor, 250)
+            for message in page.items:
+                if message.draft_refs:
+                    latest = message.draft_refs[-1]
+            if page.next_cursor is None:
+                return latest
+            cursor = page.next_cursor
 
     def _history_for_context(self, owner_id: str, conversation_id: str,
                              latest_sequence: int) -> list[ConversationMessageRecord]:
