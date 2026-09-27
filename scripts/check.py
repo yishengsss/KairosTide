@@ -198,7 +198,7 @@ def docs(root: Path) -> list[str]:
         if path.as_posix().endswith(("ARCHITECTURE.md", "FRONTEND_SPEC.md", "STATE_MODEL.md", "BACKEND_REUSE.md", "HARNESS.md")) and "状态：" not in content[:500]:
             errors.append(issue("DOC-STATUS", path, "decision/implementation status marker missing", "state whether this is a proposal or implemented evidence"))
         for referenced in re.findall(r"\bK(\d{2})\b", content):
-            if not 1 <= int(referenced) <= 16:
+            if not 1 <= int(referenced) <= 17:
                 errors.append(issue("DOC-REQ", path, f"unknown K{referenced}", "use an ID from HARNESS.md"))
         # Strip fenced examples, then check local Markdown targets.
         content = re.sub(r"```.*?```", "", content, flags=re.S)
@@ -211,9 +211,12 @@ def docs(root: Path) -> list[str]:
     harness = (root / "docs/engineering/HARNESS.md")
     if harness.exists():
         content = harness.read_text()
-        for number in range(1, 17):
+        for number in range(1, 18):
             if f"| K{number:02d} |" not in content:
                 errors.append(issue("DOC-REQ", harness, f"K{number:02d} missing", "restore the requirement index"))
+        k17 = next((line for line in content.splitlines() if line.startswith("| K17 |")), "")
+        if any(name not in k17 for name in ("test_conversation_api.py", "test_conversation_recovery.py", "session-stale-draft.test.mjs")):
+            errors.append(issue("DOC-REQ-K17", harness, "K17 does not map all continuity test layers", "name API context, restart/privacy, and stale-draft session tests in its evidence row"))
     return errors
 
 
@@ -283,7 +286,7 @@ def main() -> int:
             errors += command_check([str(root / "apps/web/node_modules/.bin/vue-tsc"), "--noEmit"], root / "apps/web")
             errors += command_check([str(root / "apps/web/node_modules/.bin/vite"), "build"], root / "apps/web")
         else:
-            errors.append("NOT_RUN e2e: T1 has no browser journey; K02-K16 browser evidence belongs to T10")
+            errors.append("NOT_RUN e2e: no real browser journey was run; K02-K17 browser evidence remains separate from unit/API gates")
     for error in errors:
         print(error)
     if errors:
