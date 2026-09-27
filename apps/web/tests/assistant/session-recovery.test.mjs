@@ -26,9 +26,9 @@ const userMessage = (id, content, sequence = 1, status = 'completed') => ({
   created_at: '2026-09-27T06:00:00Z', draft_refs: [], action_results: [],
 })
 
-const assistantMessage = (id, content, sequence = 2, draftRefs = []) => ({
+const assistantMessage = (id, content, sequence = 2, draftRefs = [], actionResults = []) => ({
   message_id: id, role: 'assistant', content, sequence, status: 'completed',
-  created_at: '2026-09-27T06:00:01Z', draft_refs: draftRefs, action_results: [],
+  created_at: '2026-09-27T06:00:01Z', draft_refs: draftRefs, action_results: actionResults,
 })
 
 test('opens the stored conversation and restores transcript and current server draft', async () => {
@@ -185,4 +185,155 @@ test('restores a pending turn by server-provided client ID and blocks unrelated 
   assert.equal(calls.at(-1)[3], 0)
   assert.equal(calls.at(-1)[4], 'original-client-id')
   assert.equal(session.state.pendingConversationTurn, null)
+})
+
+test('typed draft confirmation commits directly then records server-confirmed receipt without AI', async () => {
+  const storage = fakeStorage()
+  storage.setItem('kairos.assistant-conversation.v1', 'conversation-confirm')
+  let draftStatus = 'ready'
+  let commitCalls = 0
+  let modelCalls = 0
+  const appended = []
+  const session = createAssistantSession({
+    loadConversation: async () => ({ items: [userMessage('u1', '明天下午开项目会'),
+      assistantMessage('a1', '已生成日程草稿，请检查内容并确认。', 2, ['draft-live'])],
+    draft_refs: ['draft-live'], next_cursor: null, revision: 2 }),
+    getDraft: async () => ({ ...readyDraft, status: draftStatus }),
+    confirmDraft: async () => {
+      commitCalls++
+      draftStatus = 'committed'
+      return { draft_id: 'draft-live', revision: 5, resources: [{ resource_id: 'event-1', resource_type: 'event', version: 1 }] }
+    },
+    sendMessage: async () => { modelCalls++; throw new Error('confirmation must not invoke AI') },
+    appendConversationTurn: async (id, request, key) => {
+      appended.push({ id, request, key })
+      return { status: 'completed', revision: 4,
+        user_message: userMessage('u-confirm', request.content, 3),
+        answer: assistantMessage('a-confirm', '已保存这份日程。', 4, ['draft-live'], [
+          { action: 'confirm_rigid_event_draft', status: 'succeeded', data: { draft_id: 'draft-live' }, message: null },
+        ]), draft_refs: ['draft-live'], tool_results: [] }
+    },
+  }, storage)
+  assert.equal(await session.restoreConversation(), true)
+  session.setInput('确认')
+
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(commitCalls, 1)
+  assert.equal(modelCalls, 0)
+  assert.equal(appended.length, 1)
+  assert.equal(appended[0].id, 'conversation-confirm')
+  assert.equal(appended[0].request.content, '确认')
+  assert.equal(appended[0].request.client_message_id, appended[0].key)
+  assert.equal(appended[0].request.expected_sequence, 2)
+  assert.deepEqual(session.state.messages.map(message => message.content), [
+    '明天下午开项目会', '已生成日程草稿，请检查内容并确认。', '确认', '已保存这份日程。',
+  ])
+  assert.equal(session.state.draft.status, 'committed')
+  assert.equal(session.state.input, '')
+})
+
+test('uncertain confirmation receipt retries same client ID after loading pending turn', async () => {
+  const storage = fakeStorage()
+  storage.setItem('kairos.assistant-conversation.v1', 'conversation-confirm-retry')
+  let draftStatus = 'ready'
+  let commitCalls = 0
+  let modelCalls = 0
+  let appendCount = 0
+  const keys = []
+  const session = createAssistantSession({
+    loadConversation: async () => ({ items: [userMessage('u1', '创建一个项目会'),
+      assistantMessage('a1', '已生成日程草稿，请检查内容并确认。', 2, ['draft-live']),
+      ...(appendCount ? [userMessage('u-confirm', '确认', 3, 'pending')] : [])],
+    draft_refs: ['draft-live'], next_cursor: null, revision: appendCount ? 3 : 2,
+    pending_client_message_id: appendCount ? keys[0] : null }),
+    getDraft: async () => ({ ...readyDraft, status: draftStatus }),
+    confirmDraft: async () => {
+      commitCalls++
+      draftStatus = 'committed'
+      return { draft_id: 'draft-live', revision: 5, resources: [{ resource_id: 'event-1', resource_type: 'event', version: 1 }] }
+    },
+    sendMessage: async () => { modelCalls++; throw new Error('confirmation must not invoke AI') },
+    appendConversationTurn: async (_id, request, key) => {
+      appendCount++
+      keys.push(key)
+      assert.equal(request.expected_sequence, 2)
+      if (appendCount === 1) throw new Error('response lost after reservation')
+      return { status: 'completed', revision: 4,
+        user_message: userMessage('u-confirm', request.content, 3),
+        answer: assistantMessage('a-confirm', '已保存这份日程。', 4, ['draft-live'], [
+          { action: 'confirm_rigid_event_draft', status: 'succeeded', data: { draft_id: 'draft-live' }, message: null },
+        ]), draft_refs: ['draft-live'], tool_results: [] }
+    },
+  }, storage)
+  await session.restoreConversation()
+  session.setInput('确认')
+
+  assert.equal(await session.sendMessage(), false)
+  assert.equal(session.state.input, '确认')
+  assert.match(session.state.error, /日程已保存.*确认记录尚未同步/)
+  assert.equal(commitCalls, 1)
+  assert.equal(modelCalls, 0)
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(appendCount, 2)
+  assert.equal(keys[0], keys[1])
+  assert.equal(session.state.messages.filter(message => message.content === '确认').length, 1)
+  assert.equal(session.state.input, '')
+})
+
+test('a committed draft restored after reload records an unrecorded typed confirmation without recommit or AI', async () => {
+  const storage = fakeStorage()
+  storage.setItem('kairos.assistant-conversation.v1', 'conversation-confirm-reload')
+  let commits = 0
+  let models = 0
+  let recorded = 0
+  const session = createAssistantSession({
+    loadConversation: async () => ({ items: [userMessage('u1', '创建会议'),
+      assistantMessage('a1', '已生成日程草稿，请检查内容并确认。', 2, ['draft-live'])],
+    draft_refs: ['draft-live'], next_cursor: null, revision: 2 }),
+    getDraft: async () => ({ ...readyDraft, status: 'committed' }),
+    confirmDraft: async () => { commits++; throw new Error('already committed; must not commit again') },
+    sendMessage: async () => { models++; throw new Error('confirmation must not invoke AI') },
+    appendConversationTurn: async (_id, request) => {
+      recorded++
+      return { status: 'completed', revision: 4,
+        user_message: userMessage('u-confirm', request.content, 3),
+        answer: assistantMessage('a-confirm', '已保存这份日程。', 4, ['draft-live'], [
+          { action: 'confirm_rigid_event_draft', status: 'succeeded', data: { draft_id: 'draft-live' }, message: null },
+        ]), draft_refs: ['draft-live'], tool_results: [] }
+    },
+  }, storage)
+  await session.restoreConversation()
+  session.setInput('确认')
+
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(commits, 0)
+  assert.equal(models, 0)
+  assert.equal(recorded, 1)
+  assert.equal(session.state.messages.filter(message => message.content === '确认').length, 1)
+})
+
+test('a committed draft with a recorded receipt does not capture later ordinary acknowledgments', async () => {
+  const storage = fakeStorage()
+  storage.setItem('kairos.assistant-conversation.v1', 'conversation-after-confirm')
+  const appends = []
+  const receipt = { action: 'confirm_rigid_event_draft', status: 'succeeded', data: { draft_id: 'draft-live' }, message: null }
+  const session = createAssistantSession({
+    loadConversation: async () => ({ items: [userMessage('u1', '创建会议'),
+      assistantMessage('a1', '请核对并确认草稿。', 2, ['draft-live']),
+      userMessage('u2', '确认', 3), assistantMessage('a2', '已保存这份日程。', 4, ['draft-live'], [receipt])],
+    draft_refs: ['draft-live'], next_cursor: null, revision: 4 }),
+    getDraft: async () => ({ ...readyDraft, status: 'committed' }),
+    appendConversationTurn: async (_id, request) => {
+      appends.push(request.content)
+      return { status: 'completed', revision: 6,
+        user_message: userMessage('u3', request.content, 5),
+        answer: assistantMessage('a3', '我会按你的语境继续处理。', 6), draft_refs: [], tool_results: [] }
+    },
+  }, storage)
+  await session.restoreConversation()
+  session.setInput('好的')
+
+  assert.equal(await session.sendMessage(), true)
+  assert.deepEqual(appends, ['好的'])
+  assert.equal(session.state.messages.at(-1).content, '我会按你的语境继续处理。')
 })

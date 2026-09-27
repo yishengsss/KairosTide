@@ -134,7 +134,7 @@ export interface AssistantMessage {
 export function createAssistantSession(initialCommands: AssistantCommands = {}, storage = browserStorage()) {
   let commands = initialCommands
   const initialConversationId = readConversationId(storage)
-  let sendAttempt: { text: string; image: File | null; key: string; expectedSequence: number; uncertain?: boolean } | null = null
+  let sendAttempt: { text: string; image: File | null; key: string; expectedSequence: number; uncertain?: boolean; confirmationReceipt?: boolean } | null = null
   let createAttempt: string | null = null
   let restoreAttempt: Promise<boolean> | null = null
   let commitAttempt: { identity: string; key: string } | null = null
@@ -461,18 +461,50 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
     const image = state.image
     const text = state.input.trim() || (image ? '请识别图片中的信息并告诉我能看出什么。' : '')
     if ((!text && !image) || state.pending) return false
+    if (commands.appendConversationTurn && state.conversationId &&
+      (state.conversationRestoring || !state.conversationLoaded) && !await restoreConversation()) {
+      state.error = '无法恢复当前会话，原文仍在。请检查连接后重试。'
+      return false
+    }
     if (state.pendingConversationTurn && text !== state.pendingConversationTurn.content) {
       state.error = '上一条消息仍待服务端处理。请先重新发送原文，恢复该轮后再继续。'
       return false
     }
     const lastMessage = state.messages[state.messages.length - 1]
-    const confirmsDisplayedDraft = !image && /^(?:确认|确认保存|确认保存全部项目|保存日程|保存)[。！!\s]*$/.test(text) &&
+    const isDraftConfirmationText = !image && /^(?:确认|确认保存|确认保存全部项目|保存日程|保存)[。！!\s]*$/.test(text)
+    const confirmsDisplayedDraft = isDraftConfirmationText &&
       state.draft?.status === 'ready' && state.draftMessageIndex === state.messages.length - 1 &&
       lastMessage?.role === 'assistant' && /确认|核对/.test(lastMessage.content)
+    const confirmsCommittedDraft = isDraftConfirmationText && state.draft?.status === 'committed' &&
+      state.draftMessageIndex === state.messages.length - 1 && lastMessage?.role === 'assistant' &&
+      !lastMessage.actionResults?.some(result => result.action === 'confirm_rigid_event_draft')
+    if (commands.appendConversationTurn && state.conversationId &&
+      (sendAttempt?.confirmationReceipt && sendAttempt.text === text || confirmsCommittedDraft)) {
+      if (!state.conversationLoaded && !await restoreConversation()) {
+        state.error = '日程已保存，但无法恢复确认记录状态。原文仍在。'
+        return false
+      }
+      if (!sendAttempt || sendAttempt.text !== text || !sendAttempt.confirmationReceipt) {
+        sendAttempt = { text, image: null, key: globalThis.crypto.randomUUID(),
+          expectedSequence: state.conversationRevision, confirmationReceipt: true }
+      }
+      return recordConfirmationReceipt(text)
+    }
     if (confirmsDisplayedDraft) {
       state.error = ''
+      if (commands.appendConversationTurn && state.conversationId &&
+        (!state.conversationLoaded && !await restoreConversation())) {
+        state.error = '无法核对当前会话，日程尚未保存。请检查连接后重试。'
+        return false
+      }
       const saved = await confirmDraft()
       if (!saved) return false
+      if (commands.appendConversationTurn && state.conversationId) {
+        sendAttempt = { text, image: null, key: globalThis.crypto.randomUUID(), expectedSequence: state.conversationRevision,
+          confirmationReceipt: true }
+        return recordConfirmationReceipt(text)
+      }
+      // Preserve compatibility for isolated sessions without a conversation API.
       state.messages.push({ role: 'user', content: text })
       state.messages.push({ role: 'assistant', content: '已保存这份日程。' })
       if (state.input.trim() === text) state.input = ''
@@ -534,7 +566,45 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
       return true
     } catch {
       if (sendAttempt) sendAttempt.uncertain = true
-      state.error = '发送结果未确认，原文仍在。重试前会先核对会话记录。'
+      state.error = sendAttempt?.confirmationReceipt
+        ? '日程已保存，但确认记录尚未同步。原文仍在；重试前会先核对会话记录。'
+        : '发送结果未确认，原文仍在。重试前会先核对会话记录。'
+      return false
+    } finally {
+      state.pending = null
+    }
+  }
+
+  async function recordConfirmationReceipt(text: string): Promise<boolean> {
+    const attempt = sendAttempt
+    if (!attempt || !attempt.confirmationReceipt || !commands.appendConversationTurn || !state.conversationId) return false
+    state.pending = 'sending'
+    state.error = ''
+    try {
+      if (attempt.uncertain) {
+        const alreadyRecorded = await syncBeforeRetry(attempt)
+        if (alreadyRecorded) {
+          if (state.input.trim() === text) state.input = ''
+          sendAttempt = null
+          return true
+        }
+      }
+      const request: MessageRequest = {
+        client_message_id: attempt.key,
+        content: text,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        expected_sequence: attempt.expectedSequence,
+      }
+      const response = await commands.appendConversationTurn(state.conversationId, request, attempt.key)
+      state.conversationRevision = response.revision
+      state.pendingConversationTurn = null
+      await mergeTurnResponse(response, false)
+      if (state.input.trim() === text) state.input = ''
+      sendAttempt = null
+      return true
+    } catch {
+      attempt.uncertain = true
+      state.error = '日程已保存，但确认记录尚未同步。原文仍在；重试前会先核对会话记录。'
       return false
     } finally {
       state.pending = null
