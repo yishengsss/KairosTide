@@ -86,6 +86,7 @@ class Reminder(DTO):
     acknowledged_at: datetime | None
     event_title: str
     location: str | None
+    start_at: datetime
     minutes_until_start: int = Field(ge=0, le=5)
 
 
@@ -225,7 +226,26 @@ class ChangeProposalResponse(DTO):
     target_id: str
     scope: Literal["occurrence", "series"]
     revision: int
+    action: Literal["update", "delete"]
     summary: str
+    confirmation_digest: str
+    status: Literal["pending", "committed"]
+
+
+class ChangeProposalCommitRequest(DTO):
+    revision: int
+    confirmation_digest: str
+    source_action_id: str
+
+
+class ChangeProposalCommitResponse(DTO):
+    proposal_id: str
+    target_id: str
+    scope: Literal["occurrence", "series"]
+    action: Literal["update", "delete"]
+    affected_ids: list[str]
+    version: int
+    status: Literal["committed"]
 
 
 class FlexibleTaskRequest(DTO):
@@ -248,11 +268,17 @@ class FlexibleTask(DTO):
     deadline: date | datetime | None
     deadline_precision: Literal["date", "instant"] | None
     timezone: str
+    lifecycle_status: Literal["planned", "active", "completed"]
 
     @model_validator(mode="after")
     def validate_deadline_precision(self):
         validate_deadline_pair(self.deadline, self.deadline_precision)
         return self
+
+
+class FlexibleTaskLifecycleRequest(DTO):
+    status: Literal["planned", "active", "completed"]
+    expected_version: int
 
 
 def validate_deadline_pair(deadline: date | datetime | None, precision: str | None) -> None:
@@ -274,6 +300,10 @@ class FlexibleTaskQueryRequest(DTO):
 class FlexibleTaskQueryResponse(DTO):
     items: list[FlexibleTask]
     source_message_id: str
+
+
+class FlexibleTaskPage(DTO):
+    items: list[FlexibleTask]
 
 
 class Conversation(DTO):
@@ -309,6 +339,43 @@ class MessagePage(DTO):
     draft_refs: list[str]
 
 
+class AssistantChatMessage(DTO):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class AssistantImageAttachment(DTO):
+    mime_type: Literal["image/jpeg", "image/png", "image/webp"]
+    data_base64: str = Field(min_length=1, max_length=14_000_000)
+
+
+class AssistantChatRequest(DTO):
+    client_message_id: str = Field(min_length=1, max_length=200)
+    timezone: str = Field(min_length=1, max_length=100)
+    messages: list[AssistantChatMessage] = Field(min_length=1, max_length=24)
+    image: AssistantImageAttachment | None = None
+
+    @model_validator(mode="after")
+    def require_user_turn(self):
+        if self.messages[-1].role != "user":
+            raise ValueError("last message must be from the user")
+        return self
+
+
+class AssistantActionResult(DTO):
+    action: str
+    status: str
+    data: Any | None = None
+    message: str | None = None
+
+
+class AssistantChatResponse(DTO):
+    answer: str = Field(min_length=1)
+    action_results: list[AssistantActionResult] = Field(default_factory=list)
+    draft: DraftResponse | None = None
+    retain_image: bool = False
+
+
 class WeatherObservation(DTO):
     kind: Literal["current", "forecast"]
     condition: Literal["clear", "partly_cloudy", "overcast", "rain", "fog", "snow"] | None
@@ -319,9 +386,25 @@ class WeatherObservation(DTO):
     valid_until: datetime | None
 
 
+class WeatherPlaceChoice(DTO):
+    name: str
+    latitude: float
+    longitude: float
+    timezone: str
+    country: str | None
+    admin1: str | None
+
+
 class WeatherResponse(DTO):
     location_id: str
     availability: Literal["available", "stale", "unavailable"]
     source: str | None
     fetched_at: datetime | None
     observations: list[WeatherObservation]
+    location_label: str | None = None
+    timezone: str | None = None
+    attribution: str | None = None
+    detail: str | None = None
+    location_choices: list[WeatherPlaceChoice] = Field(default_factory=list)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)

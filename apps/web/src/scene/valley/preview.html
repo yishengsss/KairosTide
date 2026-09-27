@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Kairos · 山谷湖泊 · 基础空间预览</title>
+    <style>
+      html,body,main{width:100%;height:100%;margin:0;overflow:hidden;background:#849a9e}
+      main{height:100dvh}canvas{display:block;width:100%;height:100%}
+      #time-peek{position:fixed;z-index:8;inset:0;display:grid;place-items:center;pointer-events:none;color:#f8f4df;font:clamp(2.5rem,8vw,4rem)/1.1 system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:.035em;text-shadow:0 2px 18px #07151caa,0 1px 3px #07151c;opacity:0;visibility:hidden;transition:opacity .24s ease,visibility 0s linear .24s}
+      #time-peek.is-visible{opacity:1;visibility:visible;transition:opacity .18s ease}
+      #failure{position:fixed;inset:auto 1.5rem 1.5rem;max-width:27rem;margin:auto;padding:1rem 1.2rem;background:#182f37ed;color:#f6f5ec;border-radius:.6rem;font:15px/1.6 system-ui,sans-serif}
+      #failure[hidden]{display:none}button{font:inherit;color:inherit;background:transparent;border:1px solid #a5b5b9;border-radius:.3rem;padding:.4rem .8rem;margin-top:.6rem;cursor:pointer}
+      button:focus-visible{outline:3px solid #ffe0a3;outline-offset:4px}
+      @media(prefers-reduced-motion:reduce){#time-peek,#time-peek.is-visible{transition:opacity .01ms}}
+    </style>
+  </head>
+  <body>
+    <main id="valley" aria-label="Kairos 自然场景"></main>
+    <div id="time-peek" role="status" aria-live="off" aria-hidden="true"></div>
+    <section id="failure" role="alert" hidden><div id="failure-message"></div><button type="button" id="retry">重新加载</button></section>
+    <script type="module" src="./preview.ts"></script>
+  </body>
+</html>

@@ -31,6 +31,15 @@ def test_occurrence_query_returns_only_requested_window(tmp_path: Path) -> None:
     from kairos.application.drafts import DraftService
     from kairos.application.draft_commit import DraftCommitService
     from kairos.domain.drafts import Candidate
+    from kairos.application.weather import WeatherResult
+
+    class NoWeather:
+        source = "Open-Meteo"
+        attribution = "Weather data by Open-Meteo (CC BY 4.0)"
+        def current(self, _city):
+            return WeatherResult("unavailable", None, self.source, None, (), self.attribution, "offline")
+        def forecast(self, city, _from, _to):
+            return self.current(city)
 
     now = datetime.now(UTC)
     path = tmp_path / "events.sqlite3"
@@ -45,10 +54,10 @@ def test_occurrence_query_returns_only_requested_window(tmp_path: Path) -> None:
         assert len(page.json()["items"]) == 1
         assert page.json()["items"][0]["title"] == "软件工程课"
         assert page.json()["items"][0]["temporal_phase"] == "upcoming"
-    with TestClient(create_app(str(tmp_path / "shell.sqlite3"))) as client:
+    with TestClient(create_app(str(tmp_path / "shell.sqlite3"), weather_provider=NoWeather())) as client:
         response = client.get("/api/v1/weather", params={"location_id": "home"})
-    assert response.status_code == 501
+    assert response.status_code == 200
     payload = response.json()
-    assert payload["code"] == "NOT_IMPLEMENTED"
-    assert payload["request_id"]
-    assert "message" in payload
+    assert payload["availability"] == "unavailable"
+    assert payload["source"] == "Open-Meteo"
+    assert payload["observations"] == []

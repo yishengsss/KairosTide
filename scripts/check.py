@@ -71,7 +71,7 @@ def legacy_inventory(root: Path) -> dict[str, str]:
         for directory, children, files in os.walk(area, followlinks=False):
             children[:] = [child for child in children if child != ".git"]
             for filename in files:
-                if filename == ".git":
+                if filename in {".git", ".DS_Store"}:
                     continue
                 path = Path(directory) / filename
                 relative = path.relative_to(root).as_posix()
@@ -147,7 +147,11 @@ def architecture(root: Path) -> list[str]:
                         errors.append(issue("ARCH-SCENE", path, f"scene -> {target}", "inject already mapped environment data"))
     baseline = PROJECT / "scripts/legacy-baseline.json"
     if root == PROJECT and baseline.exists():
-        expected = json.loads(baseline.read_text())
+        expected = {
+            path: digest
+            for path, digest in json.loads(baseline.read_text()).items()
+            if not path.endswith("/.DS_Store")
+        }
         actual = legacy_inventory(root)
         for name in sorted(set(expected) | set(actual)):
             if name in actual and name in expected and expected[name] == actual[name]:
@@ -179,7 +183,7 @@ def production_bundle(root: Path) -> list[str]:
 def docs(root: Path) -> list[str]:
     errors = []
     required = (
-        "AGENTS.md", "ARCHITECTURE.md", "README.md", "docs/PRODUCT_MEMORY.md",
+        "AGENTS.md", "ARCHITECTURE.md", "README.md", "docs/memory/PRODUCT_MEMORY.md",
         "docs/design/FRONTEND_SPEC.md", "docs/design/STATE_MODEL.md",
         "docs/design/BACKEND_REUSE.md", "docs/engineering/HARNESS.md",
     )

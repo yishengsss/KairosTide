@@ -1,0 +1,2 @@
+# Locked Python runtime and development dependencies for the API.
+-r services/api/requirements.lock

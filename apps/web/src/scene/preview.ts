@@ -1,11 +1,20 @@
 import { createApp, defineComponent, h, shallowRef } from 'vue'
-import NatureScene from './NatureScene.vue'
+import NatureScene from './flow/ContinuousFlowScene.vue'
 import { computeEnvironment, type WeatherCondition, type WeatherResponse } from './environment.ts'
 
 const timeInput = document.querySelector<HTMLInputElement>('#fixture-time')!
+const seasonInput = document.querySelector<HTMLSelectElement>('#fixture-season')!
 const weatherInput = document.querySelector<HTMLSelectElement>('#fixture-weather')!
 const query = new URLSearchParams(location.search)
+const seasonProgress: Record<string, number> = {
+  // Sample the season palette stops directly (March, June, September, December).
+  spring: 2 / 12,
+  summer: 5 / 12,
+  autumn: 8 / 12,
+  winter: 11 / 12,
+}
 timeInput.value = query.get('time') ?? '15:00'
+seasonInput.value = query.get('season') ?? 'auto'
 weatherInput.value = query.get('weather') ?? 'clear'
 
 function frameForFixture() {
@@ -20,7 +29,8 @@ function frameForFixture() {
       visibility: condition === 'fog' ? 0.3 : 1,
       observed_at: instant.toISOString(), valid_until: new Date(instant.getTime() + 60_000).toISOString() }],
   }
-  return computeEnvironment({ instant, location: { latitude: 34.3416, longitude: 108.9398 }, weather })
+  return computeEnvironment({ instant, location: { latitude: 34.3416, longitude: 108.9398 }, weather,
+    season: seasonProgress[seasonInput.value] })
 }
 
 const frame = shallowRef(frameForFixture())
@@ -34,7 +44,10 @@ function update() {
   const url = new URL(location.href)
   url.searchParams.set('time', timeInput.value)
   url.searchParams.set('weather', weatherInput.value)
+  if (seasonInput.value === 'auto') url.searchParams.delete('season')
+  else url.searchParams.set('season', seasonInput.value)
   history.replaceState(null, '', url)
 }
 timeInput.addEventListener('input', update)
+seasonInput.addEventListener('change', update)
 weatherInput.addEventListener('change', update)

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { DraftResponse } from './sessionStore.ts'
 
-const props = defineProps<{ draft: DraftResponse; pending: boolean }>()
+const props = defineProps<{ draft: DraftResponse; pending: boolean; conflictPairs?: Array<[string, string]> }>()
 const emit = defineEmits<{ confirm: [] }>()
 
 const complete = computed(() => props.draft.status === 'ready' &&
@@ -60,9 +60,14 @@ function recurrenceText(candidate: DraftResponse['candidates'][number]) {
       <ul><li v-for="question in draft.questions" :key="question">{{ question }}</li></ul>
     </div>
     <p v-if="draft.status === 'expired'" class="draft-warning">草稿已过期，请重新核对后再保存。</p>
+    <div v-if="conflictPairs?.length" class="draft-conflict" role="alert">
+      <strong>发现时间冲突，尚未保存。</strong>
+      <p>再次点击确认表示你已核对并仍要保存这些重叠日程：</p>
+      <ul><li v-for="(pair, index) in conflictPairs" :key="index">{{ pair[0] }} ↔ {{ pair[1] }}</li></ul>
+    </div>
     <p v-if="draft.status === 'committed'" class="draft-saved">已保存</p>
     <button v-if="complete" type="button" class="draft-confirm" :disabled="pending" @click="emit('confirm')">
-      {{ pending ? '正在保存…' : '确认保存全部项目' }}
+      {{ pending ? '正在保存…' : conflictPairs?.length ? '确认仍要保存（接受冲突）' : '确认保存全部项目' }}
     </button>
   </section>
 </template>
@@ -84,6 +89,9 @@ function recurrenceText(candidate: DraftResponse['candidates'][number]) {
 .draft-details dd { margin: 0; overflow-wrap: anywhere; }
 .draft-missing, .draft-warning { color: #8a422b; font-weight: 600; }
 .draft-questions { padding: .75rem; border-radius: .7rem; background: #fff; }
+.draft-conflict { margin: .75rem 0; padding: .75rem; border-radius: .7rem; background: #fff0e9; color: #823e29; }
+.draft-conflict p { margin: .35rem 0; }
+.draft-conflict ul { margin: .25rem 0; padding-inline-start: 1.3rem; }
 .draft-questions p { margin: 0 0 .25rem; font-weight: 600; }
 .draft-questions ul { margin: 0; padding-inline-start: 1.4rem; }
 .draft-saved { font-weight: 650; color: #26583a; }

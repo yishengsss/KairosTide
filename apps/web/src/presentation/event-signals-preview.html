@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Kairos · 事件信号预览</title>
+  </head>
+  <body>
+    <main id="preview-scene" aria-label="Kairos 事件信号视觉预览"></main>
+    <aside class="preview-panel" aria-label="开发预览控制">
+      <p class="preview-eyebrow">DEVELOPMENT PREVIEW</p>
+      <h1>事件信号</h1>
+      <p class="preview-note">仅使用页面内样例；这些操作不会读写真实任务或日程。</p>
+      <div class="preview-actions">
+        <button type="button" data-action="reset">重置组合</button>
+        <button type="button" data-action="add">加入临时黄圈</button>
+        <button type="button" data-action="expire">快进到下次到期</button>
+        <button type="button" data-action="reoffer">重新展示暂停任务</button>
+        <button type="button" data-action="rigid-end">结束固定事件</button>
+        <button type="button" data-action="rigid-restart">恢复固定事件</button>
+      </div>
+      <p class="preview-diagnostics" aria-live="off"></p>
+    </aside>
+    <script type="module" src="./event-signals-preview.ts"></script>
+    <style>
+      html, body, #preview-scene { width: 100%; height: 100%; min-height: 100dvh; margin: 0; overflow: hidden; }
+      body { font: 100%/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .preview-composition { position: relative; width: 100%; height: 100%; overflow: hidden; }
+      .preview-panel { position: fixed; z-index: 20; top: max(1rem, env(safe-area-inset-top)); left: max(1rem, env(safe-area-inset-left)); width: min(20rem, calc(100vw - 2rem)); padding: 1rem; color: #f6f5ea; border: 1px solid rgb(237 244 232 / 20%); border-radius: 1rem; background: rgb(13 31 37 / 74%); box-shadow: 0 16px 48px rgb(4 13 20 / 18%); backdrop-filter: blur(18px); }
+      .preview-eyebrow { margin: 0; color: #c5d2c8a8; font-size: .62rem; letter-spacing: .18em; }
+      .preview-panel h1 { margin: .25rem 0 .25rem; font-size: 1.05rem; font-weight: 560; letter-spacing: .03em; }
+      .preview-note, .preview-diagnostics { margin: .3rem 0 .7rem; color: #e1e8dcc2; font-size: .76rem; }
+      .preview-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
+      .preview-actions button, .preview-detail-actions button { min-height: 2.5rem; padding: .45rem .55rem; border: 1px solid rgb(226 238 229 / 21%); border-radius: .65rem; background: rgb(238 244 232 / 7%); color: #f5f5e9; font: inherit; font-size: .78rem; cursor: pointer; transition: background-color .18s ease, border-color .18s ease; }
+      .preview-actions button:hover, .preview-detail-actions button:hover { border-color: rgb(238 244 232 / 45%); background: rgb(238 244 232 / 15%); }
+      .preview-actions button:focus-visible, .preview-detail-actions button:focus-visible, .preview-detail-close:focus-visible { outline: 3px solid #f3db8b; outline-offset: 2px; }
+      .preview-diagnostics { margin: .7rem 0 0; }
+      .preview-task-detail { position: fixed; z-index: 15; top: 50%; right: max(2rem, env(safe-area-inset-right)); width: min(21rem, calc(100vw - 2rem)); padding: 1.25rem; box-sizing: border-box; color: #f7f4e8; border: 1px solid rgb(239 231 190 / 22%); border-radius: 1.1rem; background: rgb(13 30 36 / 91%); box-shadow: 0 18px 48px rgb(4 12 19 / 28%); transform: translateY(-50%); backdrop-filter: blur(18px); }
+      .preview-detail-close { position: absolute; top: .45rem; right: .55rem; width: 2.4rem; height: 2.4rem; border: 0; background: transparent; color: #f7f4e8; font: inherit; font-size: 1.45rem; cursor: pointer; }
+      .preview-detail-kicker { margin: 0; color: #efd77d; font-size: .72rem; letter-spacing: .12em; }
+      .preview-task-detail h2 { margin: .45rem 2rem .6rem 0; font-size: 1.15rem; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
+      .preview-detail-copy { margin: 0; color: #e1e8dcc2; font-size: .84rem; }
+      .preview-detail-actions { display: flex; gap: .55rem; margin-top: 1.15rem; }
+      .preview-detail-actions button { min-width: 5rem; }
+      @media (max-width: 34rem) {
+        .preview-panel { top: max(.65rem, env(safe-area-inset-top)); left: max(.65rem, env(safe-area-inset-left)); width: min(18rem, calc(100vw - 1.3rem)); padding: .8rem; }
+        .preview-task-detail { top: auto; right: .65rem; bottom: max(.65rem, env(safe-area-inset-bottom)); left: .65rem; width: auto; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    </style>
+  </body>
+</html>

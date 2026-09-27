@@ -1,6 +1,176 @@
 {
   "components": {
     "schemas": {
+      "AssistantActionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "status"
+        ],
+        "title": "AssistantActionResult",
+        "type": "object"
+      },
+      "AssistantChatMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "AssistantChatMessage",
+        "type": "object"
+      },
+      "AssistantChatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Client Message Id",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantImageAttachment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantChatMessage"
+            },
+            "maxItems": 24,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          },
+          "timezone": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_message_id",
+          "timezone",
+          "messages"
+        ],
+        "title": "AssistantChatRequest",
+        "type": "object"
+      },
+      "AssistantChatResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action_results": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantActionResult"
+            },
+            "title": "Action Results",
+            "type": "array"
+          },
+          "answer": {
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retain_image": {
+            "default": false,
+            "title": "Retain Image",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "title": "AssistantChatResponse",
+        "type": "object"
+      },
+      "AssistantImageAttachment": {
+        "additionalProperties": false,
+        "properties": {
+          "data_base64": {
+            "maxLength": 14000000,
+            "minLength": 1,
+            "title": "Data Base64",
+            "type": "string"
+          },
+          "mime_type": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Mime Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mime_type",
+          "data_base64"
+        ],
+        "title": "AssistantImageAttachment",
+        "type": "object"
+      },
       "CandidateOperation": {
         "additionalProperties": false,
         "properties": {
@@ -43,6 +213,86 @@
           "changes"
         ],
         "title": "CandidateOperation",
+        "type": "object"
+      },
+      "ChangeProposalCommitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation_digest": {
+            "title": "Confirmation Digest",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_action_id": {
+            "title": "Source Action Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "confirmation_digest",
+          "source_action_id"
+        ],
+        "title": "ChangeProposalCommitRequest",
+        "type": "object"
+      },
+      "ChangeProposalCommitResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "update",
+              "delete"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "affected_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Ids",
+            "type": "array"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "occurrence",
+              "series"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "const": "committed",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "target_id",
+          "scope",
+          "action",
+          "affected_ids",
+          "version",
+          "status"
+        ],
+        "title": "ChangeProposalCommitResponse",
         "type": "object"
       },
       "ChangeProposalRequest": {
@@ -103,6 +353,18 @@
       "ChangeProposalResponse": {
         "additionalProperties": false,
         "properties": {
+          "action": {
+            "enum": [
+              "update",
+              "delete"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "confirmation_digest": {
+            "title": "Confirmation Digest",
+            "type": "string"
+          },
           "proposal_id": {
             "title": "Proposal Id",
             "type": "string"
@@ -119,6 +381,14 @@
             "title": "Scope",
             "type": "string"
           },
+          "status": {
+            "enum": [
+              "pending",
+              "committed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -133,7 +403,10 @@
           "target_id",
           "scope",
           "revision",
-          "summary"
+          "action",
+          "summary",
+          "confirmation_digest",
+          "status"
         ],
         "title": "ChangeProposalResponse",
         "type": "object"
@@ -832,6 +1105,15 @@
             ],
             "title": "Deadline Precision"
           },
+          "lifecycle_status": {
+            "enum": [
+              "planned",
+              "active",
+              "completed"
+            ],
+            "title": "Lifecycle Status",
+            "type": "string"
+          },
           "task_id": {
             "title": "Task Id",
             "type": "string"
@@ -855,9 +1137,51 @@
           "title",
           "deadline",
           "deadline_precision",
-          "timezone"
+          "timezone",
+          "lifecycle_status"
         ],
         "title": "FlexibleTask",
+        "type": "object"
+      },
+      "FlexibleTaskLifecycleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "planned",
+              "active",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "expected_version"
+        ],
+        "title": "FlexibleTaskLifecycleRequest",
+        "type": "object"
+      },
+      "FlexibleTaskPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FlexibleTask"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FlexibleTaskPage",
         "type": "object"
       },
       "FlexibleTaskQueryRequest": {
@@ -1329,6 +1653,11 @@
             "title": "Schedule Revision",
             "type": "integer"
           },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
           "version": {
             "title": "Version",
             "type": "integer"
@@ -1342,6 +1671,7 @@
           "acknowledged_at",
           "event_title",
           "location",
+          "start_at",
           "minutes_until_start"
         ],
         "title": "Reminder",
@@ -1567,9 +1897,73 @@
         "title": "WeatherObservation",
         "type": "object"
       },
+      "WeatherPlaceChoice": {
+        "additionalProperties": false,
+        "properties": {
+          "admin1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin1"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "latitude",
+          "longitude",
+          "timezone",
+          "country",
+          "admin1"
+        ],
+        "title": "WeatherPlaceChoice",
+        "type": "object"
+      },
       "WeatherResponse": {
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution"
+          },
           "availability": {
             "enum": [
               "available",
@@ -1578,6 +1972,17 @@
             ],
             "title": "Availability",
             "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           },
           "fetched_at": {
             "anyOf": [
@@ -1591,9 +1996,53 @@
             ],
             "title": "Fetched At"
           },
+          "latitude": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "location_choices": {
+            "items": {
+              "$ref": "#/components/schemas/WeatherPlaceChoice"
+            },
+            "title": "Location Choices",
+            "type": "array"
+          },
           "location_id": {
             "title": "Location Id",
             "type": "string"
+          },
+          "location_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Label"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
           },
           "observations": {
             "items": {
@@ -1612,6 +2061,17 @@
               }
             ],
             "title": "Source"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "required": [
@@ -1632,6 +2092,54 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/assistant/chat": {
+      "post": {
+        "operationId": "assistant_chat_api_v1_assistant_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantChatResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Assistant Chat"
+      }
+    },
     "/api/v1/conflict-decisions": {
       "post": {
         "operationId": "decide_conflict_api_v1_conflict_decisions_post",
@@ -2240,6 +2748,123 @@
         "summary": "Change Proposal"
       }
     },
+    "/api/v1/event-change-proposals/{proposal_id}": {
+      "get": {
+        "operationId": "get_change_proposal_api_v1_event_change_proposals__proposal_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Get Change Proposal"
+      }
+    },
+    "/api/v1/event-change-proposals/{proposal_id}/commit": {
+      "post": {
+        "operationId": "commit_change_proposal_api_v1_event_change_proposals__proposal_id__commit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeProposalCommitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeProposalCommitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Commit Change Proposal"
+      }
+    },
     "/api/v1/events": {
       "get": {
         "operationId": "events_api_v1_events_get",
@@ -2356,6 +2981,42 @@
       }
     },
     "/api/v1/flexible-tasks": {
+      "get": {
+        "operationId": "list_flexible_tasks_api_v1_flexible_tasks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleTaskPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "List Flexible Tasks"
+      },
       "post": {
         "operationId": "flexible_task_api_v1_flexible_tasks_post",
         "parameters": [
@@ -2412,6 +3073,74 @@
           }
         },
         "summary": "Flexible Task"
+      }
+    },
+    "/api/v1/flexible-tasks/{task_id}/lifecycle": {
+      "post": {
+        "operationId": "transition_flexible_task_api_v1_flexible_tasks__task_id__lifecycle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlexibleTaskLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexibleTask"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Transition Flexible Task"
       }
     },
     "/api/v1/health": {
@@ -2722,6 +3451,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date-time",
                   "type": "string"
                 },
                 {
@@ -2738,6 +3468,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date-time",
                   "type": "string"
                 },
                 {

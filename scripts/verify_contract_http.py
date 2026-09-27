@@ -10,13 +10,27 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services/api/src"))
 
-from kairos.api.schemas import ErrorResponse, StateResponse  # noqa: E402
+from kairos.api.schemas import StateResponse, WeatherResponse  # noqa: E402
+from kairos.application.weather import WeatherResult  # noqa: E402
 from kairos.main import create_app  # noqa: E402
+
+
+class UnavailableWeatherProvider:
+    source = "Open-Meteo"
+    attribution = "Weather data by Open-Meteo (CC BY 4.0)"
+
+    def current(self, _city):
+        return WeatherResult("unavailable", None, self.source, None, (), self.attribution,
+                             "Weather service is temporarily unavailable.")
+
+    def forecast(self, _city, _from_at, _to_at):
+        return self.current(_city)
 
 
 def main(openapi_file: Path) -> int:
     with tempfile.TemporaryDirectory(prefix="kairos-contract-http-") as directory:
-        with TestClient(create_app(str(Path(directory) / "runtime.sqlite3"))) as client:
+        app = create_app(str(Path(directory) / "runtime.sqlite3"), weather_provider=UnavailableWeatherProvider())
+        with TestClient(app) as client:
             runtime_spec = client.get("/openapi.json")
             if runtime_spec.status_code != 200 or runtime_spec.json() != json.loads(openapi_file.read_text()):
                 print("FAIL K15-HTTP: served OpenAPI differs from generated artifact")
@@ -30,11 +44,14 @@ def main(openapi_file: Path) -> int:
                 print("FAIL K15-HTTP: state query failed")
                 return 1
             StateResponse.model_validate(state.json())
-            unimplemented = client.get("/api/v1/weather", params={"location_id": "home"})
-            if unimplemented.status_code != 501:
-                print("FAIL K15-HTTP: unimplemented events route must return 501")
+            weather = client.get("/api/v1/weather", params={"location_id": "home"})
+            if weather.status_code != 200:
+                print("FAIL K15-HTTP: weather read contract failed")
                 return 1
-            ErrorResponse.model_validate(unimplemented.json())
+            parsed_weather = WeatherResponse.model_validate(weather.json())
+            if parsed_weather.availability != "unavailable" or parsed_weather.observations:
+                print("FAIL K15-HTTP: weather fallback fabricated facts")
+                return 1
     return 0
 
 

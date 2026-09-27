@@ -1,6 +1,6 @@
 """Structured draft creation and targeted candidate editing."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from kairos.domain.drafts import Candidate, Draft, RevisionConflict, edit_candidate, make_draft
@@ -13,10 +13,14 @@ class DraftService:
         self.repository = repository
         self.clock = clock
 
-    def create(self, owner_id: str, candidates: list[Candidate], source_message_id: str) -> Draft:
-        now = self.clock.now()
+    def create(self, owner_id: str, candidates: list[Candidate], source_message_id: str,
+               idempotency_key: str | None = None, request_hash: str | None = None,
+               *, reference_now: datetime | None = None) -> Draft:
+        now = reference_now or self.clock.now()
         draft = make_draft(f"draft_{uuid4().hex}", owner_id, 1, source_message_id,
                            now, now + timedelta(hours=24), tuple(candidates))
+        if idempotency_key is not None and request_hash is not None:
+            return self.repository.create_draft_idempotent(draft, idempotency_key, request_hash)
         self.repository.save_draft(draft)
         return draft
 

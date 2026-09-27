@@ -17,7 +17,7 @@ export interface EnvironmentFrame {
   instant: Date
   sun: SunPosition
   moon: { screenX: number; screenY: number; opacity: number }
-  season: { progress: number; warmth: number }
+  season: { progress: number; warmth: number; groundSnow: number }
   atmosphere: {
     availability: WeatherResponse['availability']
     condition: WeatherCondition | null
@@ -49,11 +49,12 @@ export function computeEnvironment({ instant, location, weather, season }: Envir
   const progress = season === undefined ? annualProgress(instant) : ((season % 1) + 1) % 1
   const hemisphere = location?.latitude !== undefined && location.latitude < 0 ? -1 : 1
   const warmth = hemisphere * Math.cos(2 * Math.PI * (progress - 0.47))
+  const groundSnow = smoothstep(0.35, 0.8, -warmth) * 0.86
 
   const current = weather?.observations.find((item) => item.kind === 'current') ?? null
   const isExpired = !!current?.valid_until && Date.parse(current.valid_until) < instant.getTime()
   const availability = !weather || !current ? 'unavailable' : isExpired ? 'stale' : weather.availability
-  const condition = availability === 'unavailable' ? null : (current?.condition ?? null)
+  const condition = availability === 'available' ? (current?.condition ?? null) : null
   const cover = current?.cloud_cover
   const cloudFromSource = typeof cover === 'number' && Number.isFinite(cover)
     ? clamp(cover > 1 ? cover / 100 : cover)
@@ -68,7 +69,7 @@ export function computeEnvironment({ instant, location, weather, season }: Envir
   const transmission = clamp(1 - cloud * 0.72 - fog * 0.12 - rain * 0.07, 0.1, 1)
   const day = smoothstep(-10, 5, sun.elevationDeg)
   const night = 1 - smoothstep(-16, -3, sun.elevationDeg)
-  const palette = paletteFor(sun.elevationDeg, transmission, warmth, snow)
+  const palette = paletteFor(sun.elevationDeg, transmission, warmth, Math.max(snow, groundSnow))
 
   return {
     instant: new Date(instant.getTime()), sun,
@@ -77,7 +78,7 @@ export function computeEnvironment({ instant, location, weather, season }: Envir
       screenY: clamp(18 + 15 * Math.cos(sun.hourAngleDeg * Math.PI / 180), 8, 42),
       opacity: night * (1 - cloud * 0.8),
     },
-    season: { progress, warmth },
+    season: { progress, warmth, groundSnow },
     atmosphere: {
       availability, condition, cloud, transmission, rain, snow, fog,
       visibility: 1 - fog * 0.72,

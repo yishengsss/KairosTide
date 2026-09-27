@@ -59,11 +59,17 @@ function returnToScene() {
           <ActionButton quiet aria-label="关闭提醒同步状态" @click="session.state.notice = ''">关闭</ActionButton>
         </div>
         <div class="assistant-scroll" role="region" aria-labelledby="kairos-assistant-title">
-          <Conversation :messages="session.state.messages" />
-          <DraftReview v-if="session.state.draft" :draft="session.state.draft" :pending="session.state.pending === 'confirming'" @confirm="session.confirmDraft" />
+          <Conversation :messages="session.state.messages" :proposal-commits="session.state.proposalCommits"
+            :proposal-pending-id="session.state.proposalPendingId" :proposal-errors="session.state.proposalErrors"
+            @confirm-proposal="session.confirmProposal" />
+          <DraftReview v-if="session.state.draft" :draft="session.state.draft"
+            :conflict-pairs="session.state.draftConflict?.pairs" :pending="session.state.pending === 'confirming'"
+            @confirm="session.confirmDraft" />
         </div>
         <p v-if="session.state.error" class="assistant-error" role="alert">{{ session.state.error }}</p>
-        <Composer ref="composer" :value="session.state.input" :pending="session.state.pending === 'sending'" @update:value="session.setInput" @submit="session.sendMessage" />
+        <Composer ref="composer" :value="session.state.input" :image="session.state.image"
+          :image-error="session.state.imageError" :pending="session.state.pending === 'sending'"
+          @update:value="session.setInput" @update:image="session.setImage" @submit="session.sendMessage" />
       </template>
     </Surface>
   </aside>

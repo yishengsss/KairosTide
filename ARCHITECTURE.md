@@ -4,14 +4,14 @@
 
 ## 入口与事实来源
 
-- [产品记忆](docs/PRODUCT_MEMORY.md)：用户已确认意图；不在技术文档重新定义产品规则。
+- [产品记忆](docs/memory/PRODUCT_MEMORY.md)：用户已确认意图；不在技术文档重新定义产品规则。
 - [新前端设计](docs/design/FRONTEND_SPEC.md)：布局、场景、材质、动效和交互。
 - [状态协调](docs/design/STATE_MODEL.md)：提醒、事件、对话、真实时间的协作。
 - [后端复用与契约](docs/design/BACKEND_REUSE.md)：迁入准则、业务所有权及 API 草案。
 - [Harness](docs/engineering/HARNESS.md)：K01–K16 验收、质量门禁与证据。
 - [开发分工与顺序](docs/exec-plans/active/2026-09-26-rebuild.md)：依赖、代理职责及任务交接。
 
-历史材料：两个 `XiAnHacker-*-v1` 目录与 [研读记录](docs/CODEBASE_REVIEW.md)。历史记录中的“后续建议”已经被本轮新建项目决定替代。
+历史材料：两个 `XiAnHacker-*-v1` 目录与 [研读记录](docs/memory/CODEBASE_REVIEW.md)。历史记录中的“后续建议”已经被本轮新建项目决定替代。
 
 ## 三种路线的取舍
 
@@ -56,7 +56,7 @@ docs/evidence/               检查记录；不存敏感原始对话
 ## 技术与渲染建议
 
 - Vue 3 + TypeScript + Vite：延续现有团队可读性，组件全新编写。执行阶段锁定经过验证的依赖版本，不把旧依赖目录搬过来。
-- 原创 SVG 山体、天空渐变与天体图层，Canvas 2D 绘制雨雪和水面局部光影。先用一个湖岸场景完成全天连续变化，不建设多场景商城或3D引擎。
+- 最新用户要求采用 Three.js 建立同一山谷湖泊场景的真实纵深；先在独立预览入口完成基础空间并进行用户视觉验收，再分阶段实现昼夜、反射、天气、四季和过渡。现有业务首页仍使用 SVG/Canvas，在新场景验收前保留。详见 [第一阶段计划](docs/exec-plans/active/2026-09-26-three-valley-s1.md)。
 - 几何太阳位置、天空亮度、天气遮蔽和事件视觉分别计算，合成时保留各自因果。天气不得移动太阳，事件提醒不得改变天文时间。
 - Python + FastAPI + Pydantic + SQLite：新建服务装配，迁入纯领域逻辑与经过回归的事务机制。不要继续围绕旧的只读助手修补新产品。
 - 单机单用户是首轮工程范围建议，并非用户已确认的部署要求；第一阶段不加入账号、云同步或后台系统通知。

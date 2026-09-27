@@ -12,6 +12,7 @@
 | `application/draft_commit.py`, `adapters/persistence/sqlite.py` | `src/kairos/adapters/sqlite.py` · `3730370e79393eef3f0dafb711ee4afec77f7dd503f9caa7324e11ad7ea38ee2` | `tests/integration/test_draft_commit.py` 原子事务、重试、并发；源 `commit_draft` 用 BEGIN IMMEDIATE | 全新表与 owner 范围；事务内再查草稿、版本、过期、候选、冲突；完整批次、幂等记录、操作审计及状态同一事务；重试保持原结果；不继承旧库迁移链 | `tests/integration/test_drafts.py` 三候选、第二项失败、冲突过期、并发确认与回滚审计 |
 | `adapters/clock.py`, `application/ports.py` | `src/kairos/adapters/clock.py` · `1a28c7bdcf6b9ae3969ceaedd33ff04a9305b3d7ea52c8707207ca2317182123` | 旧适配器 UTC 系统时钟 | 新 Clock 协议注入，领域无系统时钟读取；测试使用固定时钟 | 新集成测试均注入 `FixedClock` |
 | `migrations/001_initial.sql` | 未迁入旧迁移链；源 `src/kairos/adapters/sqlite.py` 上述 hash 仅参考约束 | 旧表缺 owner，旧幂等键全局唯一 | 新库自建 owner 范围的事件、实例、草稿、幂等表；不运行旧数据库 | 临时 SQLite 的集成测试与重新打开后实例请假状态测试 |
+| `application/image_input.py` | `XiAnHacker-backend-v1/后端/src/kairos/application/images.py` · `e483eff28590a8b27d4e5aedf18ac28729151121c4aa1fc8fb171c67aa3b4575` | 只读审查旧校验器：格式 allowlist、字节上限、Pillow 解码签名、像素上限和 decompression-bomb warning 处理 | 未复制旧文件或导入旧运行时；按当前设计重写，改为 20 MP 输入上限、拒绝动画、EXIF 方向处理、缩至 MiMo 像素边界并重编码清除元数据 | `tests/unit/test_image_input.py` 与 `tests/integration/test_assistant_image_schedule.py`：格式不匹配、损坏文件、有效上传、模型前拒绝及确认前零正式事件 |
 
 ## 边界和后续装配
 

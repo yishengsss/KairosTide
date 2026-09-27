@@ -1,14 +1,16 @@
 # Kairos 项目协作约定
 
-开始本项目的设计、开发或评审前，先阅读 [产品记忆](docs/PRODUCT_MEMORY.md) 与 [新项目架构](ARCHITECTURE.md)。产品记忆记录用户决定；架构与设计中标为建议的内容不能冒充用户确认。
+开始本项目的设计、开发或评审前，先阅读 [产品记忆](docs/memory/PRODUCT_MEMORY.md) 与 [新项目架构](ARCHITECTURE.md)。产品记忆记录用户决定；架构与设计中标为建议的内容不能冒充用户确认。
 
 ## 阅读地图
 
 - 设计：[前端规范](docs/design/FRONTEND_SPEC.md)、[状态模型](docs/design/STATE_MODEL.md)。
+- 记忆：[记忆目录索引](docs/memory/README.md)、[产品记忆](docs/memory/PRODUCT_MEMORY.md)、[旧代码研读](docs/memory/CODEBASE_REVIEW.md)。
+- 画面与动画修改前必读：[视觉质量约束与当前审查](docs/design/VISUAL_QUALITY.md)。先修构图/遮挡，再加运动；测试通过不能替代视觉验收。
 - 后端：[复用准入与契约草案](docs/design/BACKEND_REUSE.md)。
 - 验收：[Harness 与 K01–K16](docs/engineering/HARNESS.md)。
 - 分工：[当前开发规划](docs/exec-plans/active/2026-09-26-rebuild.md)。
-- 现状：[项目入口](README.md)、[旧代码研读](docs/CODEBASE_REVIEW.md)。
+- 现状：[项目入口](README.md)、[旧代码研读](docs/memory/CODEBASE_REVIEW.md)。
 
 ## 新旧边界
 

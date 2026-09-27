@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 
 from kairos.adapters.persistence.sqlite import SqliteRepository
 from kairos.application.draft_commit import DraftCommitService
@@ -9,6 +10,7 @@ from kairos.application.occurrence_commands import OccurrenceService
 from kairos.domain.drafts import RevisionConflict
 from kairos.domain.events import RecurrenceRule
 from kairos.domain.drafts import Candidate
+from kairos.main import create_app
 
 
 NOW = datetime(2026, 9, 20, 12, tzinfo=UTC)
@@ -90,3 +92,26 @@ def test_exception_retry_returns_original_result_after_later_reschedule(tmp_path
                                       first.start_at + timedelta(hours=2), first.end_at + timedelta(hours=2))
     assert moved.version == first.version + 1
     assert command.set_exception("local", before.occurrence_id, "excused", before.version, "action", "exception-key") == first
+
+
+def test_http_exception_changes_only_the_requested_occurrence(tmp_path):
+    repo = SqliteRepository(tmp_path / "kairos.db")
+    clock = FixedClock()
+    recurrence = RecurrenceRule("weekly", date(2026, 9, 21), date(2026, 9, 28), (1,),
+                                time(14), time(15), 0)
+    candidate = Candidate("weekly", "软件工程课", "教学楼A", datetime(2026, 9, 21, 6, tzinfo=UTC),
+                          datetime(2026, 9, 21, 7, tzinfo=UTC), "Asia/Shanghai", recurrence)
+    draft = DraftService(repo, clock).create("local", [candidate], source_message_id="class")
+    DraftCommitService(repo, clock).commit("local", draft.draft_id, 1, ["weekly"], draft.confirmation_digest, "create")
+    occurrences = repo.list_occurrences("local", NOW, NOW + timedelta(days=20))
+    client = TestClient(create_app(str(repo.path), clock=clock, owner_id="local"))
+
+    response = client.post(f"/api/v1/occurrences/{occurrences[0].occurrence_id}/exceptions",
+        headers={"Idempotency-Key": "leave"}, json={"type": "excused", "expected_version": occurrences[0].version,
+        "source_action_id": "leave-this-time"})
+
+    assert response.status_code == 200
+    assert response.json()["disposition"] == "excused"
+    assert response.json()["event_id"] == occurrences[0].event_id
+    remaining = repo.list_occurrences("local", NOW, NOW + timedelta(days=20))
+    assert [item.disposition for item in remaining] == ["excused", "scheduled"]

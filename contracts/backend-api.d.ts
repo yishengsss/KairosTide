@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/assistant/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assistant Chat */
+        post: operations["assistant_chat_api_v1_assistant_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conflict-decisions": {
         parameters: {
             query?: never;
@@ -142,6 +159,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/event-change-proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Change Proposal */
+        get: operations["get_change_proposal_api_v1_event_change_proposals__proposal_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/event-change-proposals/{proposal_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commit Change Proposal */
+        post: operations["commit_change_proposal_api_v1_event_change_proposals__proposal_id__commit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -183,10 +234,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Flexible Tasks */
+        get: operations["list_flexible_tasks_api_v1_flexible_tasks_get"];
         put?: never;
         /** Flexible Task */
         post: operations["flexible_task_api_v1_flexible_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/flexible-tasks/{task_id}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transition Flexible Task */
+        post: operations["transition_flexible_task_api_v1_flexible_tasks__task_id__lifecycle_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -299,6 +368,60 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AssistantActionResult */
+        AssistantActionResult: {
+            /** Action */
+            action: string;
+            /** Data */
+            data?: unknown | null;
+            /** Message */
+            message?: string | null;
+            /** Status */
+            status: string;
+        };
+        /** AssistantChatMessage */
+        AssistantChatMessage: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+        };
+        /** AssistantChatRequest */
+        AssistantChatRequest: {
+            /** Client Message Id */
+            client_message_id: string;
+            image?: components["schemas"]["AssistantImageAttachment"] | null;
+            /** Messages */
+            messages: components["schemas"]["AssistantChatMessage"][];
+            /** Timezone */
+            timezone: string;
+        };
+        /** AssistantChatResponse */
+        AssistantChatResponse: {
+            /** Action Results */
+            action_results?: components["schemas"]["AssistantActionResult"][];
+            /** Answer */
+            answer: string;
+            draft?: components["schemas"]["DraftResponse"] | null;
+            /**
+             * Retain Image
+             * @default false
+             */
+            retain_image: boolean;
+        };
+        /** AssistantImageAttachment */
+        AssistantImageAttachment: {
+            /** Data Base64 */
+            data_base64: string;
+            /**
+             * Mime Type
+             * @enum {string}
+             */
+            mime_type: "image/jpeg" | "image/png" | "image/webp";
+        };
         /** CandidateOperation */
         CandidateOperation: {
             /**
@@ -312,6 +435,41 @@ export interface components {
             changes: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** ChangeProposalCommitRequest */
+        ChangeProposalCommitRequest: {
+            /** Confirmation Digest */
+            confirmation_digest: string;
+            /** Revision */
+            revision: number;
+            /** Source Action Id */
+            source_action_id: string;
+        };
+        /** ChangeProposalCommitResponse */
+        ChangeProposalCommitResponse: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "update" | "delete";
+            /** Affected Ids */
+            affected_ids: string[];
+            /** Proposal Id */
+            proposal_id: string;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "occurrence" | "series";
+            /**
+             * Status
+             * @constant
+             */
+            status: "committed";
+            /** Target Id */
+            target_id: string;
+            /** Version */
+            version: number;
         };
         /** ChangeProposalRequest */
         ChangeProposalRequest: {
@@ -338,6 +496,13 @@ export interface components {
         };
         /** ChangeProposalResponse */
         ChangeProposalResponse: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "update" | "delete";
+            /** Confirmation Digest */
+            confirmation_digest: string;
             /** Proposal Id */
             proposal_id: string;
             /** Revision */
@@ -347,6 +512,11 @@ export interface components {
              * @enum {string}
              */
             scope: "occurrence" | "series";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "committed";
             /** Summary */
             summary: string;
             /** Target Id */
@@ -576,6 +746,11 @@ export interface components {
             deadline: string | null;
             /** Deadline Precision */
             deadline_precision: ("date" | "instant") | null;
+            /**
+             * Lifecycle Status
+             * @enum {string}
+             */
+            lifecycle_status: "planned" | "active" | "completed";
             /** Task Id */
             task_id: string;
             /** Timezone */
@@ -584,6 +759,21 @@ export interface components {
             title: string;
             /** Version */
             version: number;
+        };
+        /** FlexibleTaskLifecycleRequest */
+        FlexibleTaskLifecycleRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "planned" | "active" | "completed";
+        };
+        /** FlexibleTaskPage */
+        FlexibleTaskPage: {
+            /** Items */
+            items: components["schemas"]["FlexibleTask"][];
         };
         /** FlexibleTaskQueryRequest */
         FlexibleTaskQueryRequest: {
@@ -734,6 +924,11 @@ export interface components {
             reminder_id: string;
             /** Schedule Revision */
             schedule_revision: number;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
             /** Version */
             version: number;
         };
@@ -803,21 +998,50 @@ export interface components {
             /** Visibility */
             visibility: number | null;
         };
+        /** WeatherPlaceChoice */
+        WeatherPlaceChoice: {
+            /** Admin1 */
+            admin1: string | null;
+            /** Country */
+            country: string | null;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /** Timezone */
+            timezone: string;
+        };
         /** WeatherResponse */
         WeatherResponse: {
+            /** Attribution */
+            attribution?: string | null;
             /**
              * Availability
              * @enum {string}
              */
             availability: "available" | "stale" | "unavailable";
+            /** Detail */
+            detail?: string | null;
             /** Fetched At */
             fetched_at: string | null;
+            /** Latitude */
+            latitude?: number | null;
+            /** Location Choices */
+            location_choices?: components["schemas"]["WeatherPlaceChoice"][];
             /** Location Id */
             location_id: string;
+            /** Location Label */
+            location_label?: string | null;
+            /** Longitude */
+            longitude?: number | null;
             /** Observations */
             observations: components["schemas"]["WeatherObservation"][];
             /** Source */
             source: string | null;
+            /** Timezone */
+            timezone?: string | null;
         };
     };
     responses: never;
@@ -828,6 +1052,48 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    assistant_chat_api_v1_assistant_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantChatResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     decide_conflict_api_v1_conflict_decisions_post: {
         parameters: {
             query?: never;
@@ -1266,6 +1532,92 @@ export interface operations {
             };
         };
     };
+    get_change_proposal_api_v1_event_change_proposals__proposal_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeProposalResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    commit_change_proposal_api_v1_event_change_proposals__proposal_id__commit_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProposalCommitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeProposalCommitResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     events_api_v1_events_get: {
         parameters: {
             query?: {
@@ -1350,6 +1702,44 @@ export interface operations {
             };
         };
     };
+    list_flexible_tasks_api_v1_flexible_tasks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleTaskPage"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     flexible_task_api_v1_flexible_tasks_post: {
         parameters: {
             query?: never;
@@ -1362,6 +1752,52 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FlexibleTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexibleTask"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    transition_flexible_task_api_v1_flexible_tasks__task_id__lifecycle_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlexibleTaskLifecycleRequest"];
             };
         };
         responses: {

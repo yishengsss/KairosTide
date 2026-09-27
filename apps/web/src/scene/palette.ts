@@ -34,6 +34,19 @@ export function mixColor(a: RGB, b: RGB, amount: number): RGB {
   )
 }
 
+/** Apply seasonal ground hue while preserving the current scene's brightness. */
+export function seasonalBankColor(base: RGB, seasonalGround: RGB, coverage: number): RGB {
+  const luminance = (color: RGB) => color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722
+  const targetLuminance = luminance(seasonalGround)
+  const lightScale = targetLuminance > 0 ? luminance(base) / targetLuminance : 1
+  const adjustedGround = {
+    r: seasonalGround.r * lightScale,
+    g: seasonalGround.g * lightScale,
+    b: seasonalGround.b * lightScale,
+  }
+  return mixColor(base, adjustedGround, 0.46 + (1 - Math.max(0, Math.min(1, coverage))) * 0.24)
+}
+
 export function paletteFor(elevationDeg: number, transmission: number, seasonalWarmth: number, snow: number): ScenePalette {
   const upper = stops.findIndex((stop) => elevationDeg <= stop.elevation)
   const hi = upper < 0 ? stops.length - 1 : Math.max(1, upper)
@@ -49,7 +62,7 @@ export function paletteFor(elevationDeg: number, transmission: number, seasonalW
       ? mixColor(overcast, c(122, 111, 81), Math.max(0, seasonalWarmth) * 0.16)
       : overcast
     if (key === 'shore' || key === 'mountainFar') {
-      color = mixColor(color, c(205, 211, 207), snow * (key === 'shore' ? 0.52 : 0.25))
+      color = mixColor(color, c(235, 239, 238), snow * (key === 'shore' ? 0.82 : 0.36))
     }
     result[key] = color
   }

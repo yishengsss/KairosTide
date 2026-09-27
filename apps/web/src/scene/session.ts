@@ -10,8 +10,8 @@ export interface SceneTimeSource {
 export class SceneEnvironmentSession {
   frame: EnvironmentFrame
   private readonly clock: SceneTimeSource
-  private readonly location: SolarLocation | null
-  private readonly weather: WeatherResponse | null
+  private location: SolarLocation | null
+  private weather: WeatherResponse | null
 
   constructor(
     clock: SceneTimeSource = new RealClock(),
@@ -27,6 +27,13 @@ export class SceneEnvironmentSession {
   refresh(): EnvironmentFrame {
     this.frame = this.readFrame()
     return this.frame
+  }
+
+  /** Apply an explicit scene location and its validated weather together. */
+  setInputs(location: SolarLocation | null, weather: WeatherResponse | null): EnvironmentFrame {
+    this.location = location
+    this.weather = weather
+    return this.refresh()
   }
 
   private readFrame(): EnvironmentFrame {

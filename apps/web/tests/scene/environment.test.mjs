@@ -40,6 +40,17 @@ test('unknown weather stays unknown and does not silently become clear', () => {
   assert.equal(frame.atmosphere.rain, 0)
 })
 
+test('expired rain becomes neutral while the real sun continues on its own path', () => {
+  const expired = weather('rain', 0.9)
+  expired.observations[0].valid_until = '2026-09-26T06:00:00.000Z'
+  const frame = computeEnvironment({ instant, location, weather: expired })
+  const unknown = computeEnvironment({ instant, location, weather: null })
+  assert.equal(frame.atmosphere.availability, 'stale')
+  assert.equal(frame.atmosphere.condition, null)
+  assert.equal(frame.atmosphere.rain, 0)
+  assert.deepEqual(frame.sun, unknown.sun)
+})
+
 test('rain meaningfully dims daylight while snow changes the ground without changing the sun', () => {
   const clear = computeEnvironment({ instant, location, weather: weather('clear', 0) })
   const rain = computeEnvironment({ instant, location, weather: weather('rain', 0.9) })
@@ -49,6 +60,21 @@ test('rain meaningfully dims daylight while snow changes the ground without chan
   assert.ok(brightness(clear.palette.skyZenith) - brightness(rain.palette.skyZenith) > 25)
   assert.ok(brightness(snow.palette.shore) - brightness(overcast.palette.shore) > 20)
   assert.deepEqual(snow.sun, overcast.sun)
+})
+
+test('winter adds ground snow by hemisphere without reporting falling snow', () => {
+  const northernWinter = computeEnvironment({ instant, location, weather: null, season: 11 / 12 })
+  const northernSummer = computeEnvironment({ instant, location, weather: null, season: 5 / 12 })
+  const southernWinter = computeEnvironment({ instant, location: { latitude: -34, longitude: 108 }, weather: null, season: 5 / 12 })
+  const brightness = color => color.r + color.g + color.b
+
+  assert.ok(northernWinter.season.groundSnow > 0.8)
+  assert.equal(northernWinter.atmosphere.snow, 0)
+  assert.equal(northernSummer.season.groundSnow, 0)
+  assert.ok(brightness(northernWinter.palette.shore) > brightness(northernSummer.palette.shore) + 80)
+  assert.ok(southernWinter.season.groundSnow > 0.8)
+  assert.equal(southernWinter.atmosphere.snow, 0)
+  assert.deepEqual(northernWinter.sun, northernSummer.sun)
 })
 
 test('sky and season progress continuously across local midnight without a phase reset', () => {
