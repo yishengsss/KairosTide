@@ -193,3 +193,25 @@ def test_assistant_incomplete_event_request_asks_for_clock_time(tmp_path):
     assert response.json()["draft"] is None
     assert "几点" in response.json()["answer"]
     assert SqliteRepository(path).list_events("local") == []
+
+
+def test_overlap_response_preserves_review_token_and_allows_confirmed_retry(tmp_path):
+    client, repo = client_for(tmp_path)
+    for index in range(2):
+        draft = post_draft(client, '明天下午两点开项目会，一个小时', f'overlap-{index}').json()
+        body = {'revision': draft['revision'],
+                'confirmed_candidate_ids': [draft['candidates'][0]['candidate_id']],
+                'confirmation_digest': draft['confirmation_digest'], 'conflict_acceptance': None}
+        url = f"/api/v1/drafts/{draft['draft_id']}/commit"
+        headers = {'Idempotency-Key': f'save-overlap-{index}'}
+        response = client.post(url, headers=headers, json=body)
+        if index == 0:
+            assert response.status_code == 200
+        else:
+            assert response.status_code == 409
+            detail = response.json()['detail']
+            assert detail['conflict_pairs']
+            assert len(repo.list_events('local')) == 1
+            body['conflict_acceptance'] = detail['conflict_acceptance']
+            assert client.post(url, headers=headers, json=body).status_code == 200
+            assert len(repo.list_events('local')) == 2

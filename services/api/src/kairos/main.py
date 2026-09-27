@@ -79,10 +79,13 @@ def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None =
     async def http_error(_request: Request, exc: HTTPException) -> JSONResponse:
         error = s.ErrorResponse(
             code="NOT_IMPLEMENTED" if exc.status_code == 501 else "HTTP_ERROR",
-            message=str(exc.detail),
+            message=str(exc.detail.get("message", "Request failed")) if isinstance(exc.detail, dict) else str(exc.detail),
             request_id=str(uuid4()),
         )
-        return JSONResponse(status_code=exc.status_code, content=error.model_dump())
+        payload = error.model_dump()
+        if isinstance(exc.detail, dict):
+            payload["detail"] = exc.detail
+        return JSONResponse(status_code=exc.status_code, content=payload)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:

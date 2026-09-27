@@ -16,6 +16,21 @@ const fieldLabels: Record<string, string> = {
 const fieldName = (field: string) => fieldLabels[field] ?? field
 const shown = (value: string | null) => value ?? '待补充'
 
+function shownTime(value: string | null, timezone: string | null) {
+  if (!value) return '待补充'
+  if (!timezone) return `${value}（时区待补充）`
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '时间格式待确认'
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: timezone, year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(date)
+  } catch {
+    return `${value}（时区待确认）`
+  }
+}
+
 function recurrenceText(candidate: DraftResponse['candidates'][number]) {
   const rule = candidate.recurrence
   if (!rule) return '不重复'
@@ -42,8 +57,8 @@ function recurrenceText(candidate: DraftResponse['candidates'][number]) {
         <div class="draft-details">
           <h3>{{ shown(candidate.title) }}</h3>
           <dl>
-            <div><dt>开始</dt><dd>{{ shown(candidate.start_at) }}</dd></div>
-            <div><dt>结束</dt><dd>{{ shown(candidate.end_at) }}</dd></div>
+            <div><dt>开始</dt><dd>{{ shownTime(candidate.start_at, candidate.timezone) }}</dd></div>
+            <div><dt>结束</dt><dd>{{ shownTime(candidate.end_at, candidate.timezone) }}</dd></div>
             <div><dt>地点</dt><dd>{{ shown(candidate.location) }}</dd></div>
             <div><dt>时区</dt><dd>{{ shown(candidate.timezone) }}</dd></div>
             <div><dt>重复</dt><dd>{{ recurrenceText(candidate) }}</dd></div>

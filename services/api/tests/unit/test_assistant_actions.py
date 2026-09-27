@@ -277,6 +277,33 @@ def test_relative_fixed_event_request_uses_clock_and_duration_to_make_draft():
     assert drafts.created[0].title == "会议"
 
 
+def test_unambiguous_relative_event_is_resolved_before_model_can_misclassify_it():
+    class Drafts:
+        def __init__(self): self.created = []
+        def create(self, owner_id, candidates, source_message_id, idempotency_key=None,
+                   request_hash=None, *, reference_now=None):
+            self.created.append(candidates[0])
+            from types import SimpleNamespace
+            return SimpleNamespace(draft_id="draft-direct")
+
+    drafts = Drafts()
+    model = FakeModel(ModelTurn("日程信息还无法确认，请补充具体日期和开始／结束时间；暂未保存日程。"))
+    service = AssistantService(model, FakeTasks(), drafts=drafts,
+        clock=lambda: datetime(2026, 9, 27, 2, 0, tzinfo=UTC))
+
+    result = service.handle("owner-a", "relative-meeting-room", "Asia/Shanghai", [
+        {"role": "user", "content": "我10分钟后有一个持续10分钟的会议在9阶1"}])
+
+    assert result.draft.draft_id == "draft-direct"
+    assert drafts.created[0].title == "会议"
+    assert drafts.created[0].location == "9阶1"
+    assert drafts.created[0].start_at == datetime(2026, 9, 27, 10, 10,
+        tzinfo=ZoneInfo("Asia/Shanghai"))
+    assert drafts.created[0].end_at == datetime(2026, 9, 27, 10, 20,
+        tzinfo=ZoneInfo("Asia/Shanghai"))
+    assert model.calls == []
+
+
 def test_model_can_choose_rigid_draft_for_natural_event_wording():
     class Drafts:
         def __init__(self): self.created = []
@@ -1276,3 +1303,11 @@ def test_weather_model_repeat_does_not_trigger_another_provider_request():
 
     assert len(weather.calls) == 1
     assert len(result.action_results) == 1
+
+
+def test_duration_before_course_name_preserves_specific_title():
+    candidate = parse_event_candidate('我15分钟后有一个持续90分钟的网络工程课程在9阶1',
+                                     'Asia/Shanghai', datetime(2026, 9, 27, 4, tzinfo=UTC))
+    assert candidate.title == '网络工程课程'
+    assert candidate.location == '9阶1'
+    assert (candidate.end_at - candidate.start_at).total_seconds() == 5400

@@ -110,6 +110,32 @@ def test_relative_meeting_with_duration_and_room_creates_correct_structured_draf
     assert candidate["end_at"] == "2026-09-26T20:20:00+08:00"
 
 
+def test_relative_meeting_draft_is_attached_to_durable_conversation(tmp_path):
+    model = FixedModel(ModelTurn("日程信息还无法确认，请补充具体日期和开始／结束时间；暂未保存日程。"))
+    with TestClient(create_app(str(tmp_path / "conversation-relative-meeting.sqlite3"), owner_id="local",
+                               clock=FixedClock(), assistant_task_model=model)) as client:
+        conversation = client.post("/api/v1/conversations",
+            headers={"Idempotency-Key": "relative-meeting-conversation"}).json()
+        conversation_id = conversation["conversation_id"]
+        response = client.post(f"/api/v1/conversations/{conversation_id}/messages", json={
+            "client_message_id": "relative-meeting-conversation-turn",
+            "content": "我10分钟后有一个持续10分钟的会议在9阶1",
+            "timezone": "Asia/Shanghai", "expected_sequence": 0,
+        }, headers={"Idempotency-Key": "relative-meeting-conversation-turn"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["draft_refs"]
+        assert body["answer"]["draft_refs"] == body["draft_refs"]
+        draft = client.get(f"/api/v1/drafts/{body['draft_refs'][0]}").json()
+
+    assert body["answer"]["content"] == "已生成刚性事件草稿，尚未保存。请检查内容并确认。"
+    candidate = draft["candidates"][0]
+    assert candidate["title"] == "会议"
+    assert candidate["location"] == "9阶1"
+    assert candidate["start_at"] == "2026-09-26T12:10:00Z"
+    assert candidate["end_at"] == "2026-09-26T12:20:00Z"
+
+
 def test_user_confirmation_of_relative_time_asks_for_absolute_start_without_draft(tmp_path):
     db = tmp_path / "confirmed-relative-rigid.sqlite3"
     model = FixedModel(ModelTurn(None, (call("create_rigid_event_draft", {}),)))

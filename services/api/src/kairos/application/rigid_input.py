@@ -52,10 +52,14 @@ def parse_event_candidate(text: str, timezone: str, now: datetime) -> Candidate:
                         _hour(duration_hours.group(1)) * 60 if duration_hours else None)
             if duration is not None:
                 end = start + timedelta(minutes=duration)
+            title_source = re.sub(
+                r"(?:持续|时长(?:为)?|用时)\s*[一二三四五六七八九十两\d]{1,3}\s*(?:分钟|个?小时)的",
+                "", source)
             title_match = re.search(
                 r"(?:有个|有一个|有一场|开个|开一个|开一场|参加|去)([^，。]*?)"
-                r"(?=持续|时长|用时|，|。|$)", source)
+                r"(?=持续|时长|用时|，|。|$)", title_source)
             extracted_title = title_match.group(1).strip() if title_match else ""
+            extracted_title = re.split(r"在|地点\s*[:：]?", extracted_title, maxsplit=1)[0].strip()
             if extracted_title:
                 title = extracted_title
                 if title == "会":

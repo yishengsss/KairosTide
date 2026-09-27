@@ -872,6 +872,32 @@ class AssistantService:
                     return AssistantResult("相对开始时间会随确认时间变化。请重新说明明确的日期和具体几点开始；没有生成或保存日程。", ())
                 intent = "create_rigid_event_draft"
                 rigid_event_text = anchor
+        if intent == "create_rigid_event_draft" and image is None:
+            # A complete, explicit event request has all required fields in
+            # the user's text. Resolve it from the trusted server clock before
+            # asking the model to classify or call a tool; provider tool-call
+            # formatting must not block a valid confirmable draft.
+            try:
+                candidate = parse_event_candidate(rigid_event_text, timezone, now)
+            except ValueError:
+                candidate = None
+            if (candidate is not None and candidate.title and candidate.start_at is not None
+                    and candidate.end_at is not None):
+                outcome = self._execute(
+                    ToolCall(call_id="server-explicit-rigid-draft",
+                             name="create_rigid_event_draft", arguments_json="{}"),
+                    intent, owner_id, client_message_id, timezone, 0, False,
+                    current_text, now, rigid_event_text,
+                )
+                if outcome.draft is not None:
+                    return AssistantResult(
+                        "已生成刚性事件草稿，尚未保存。请检查内容并确认。",
+                        (outcome,), outcome.draft)
+                if outcome.status != "rejected":
+                    return AssistantResult(
+                        self._rigid_draft_error(outcome, rigid_event_text, timezone, now),
+                        (outcome,),
+                    )
         local_now = now.astimezone(ZoneInfo(timezone))
         trusted_context = (f"服务器提供的当前时间是 {local_now.isoformat()}，用户时区是 {timezone}。"
                           "解析相对截止日期时只能以这条服务器上下文为时间基准；不得使用用户文本中声称的当前日期或时间。\n")

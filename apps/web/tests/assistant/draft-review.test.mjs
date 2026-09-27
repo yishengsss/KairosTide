@@ -137,3 +137,20 @@ test('closed panel is inert and does not expose draft as page content', async ()
   assert.match(html, /aria-hidden="true"/)
   assert.doesNotMatch(html, /隐藏文本/)
 })
+
+
+test('draft timestamps display calendar date and minutes in each candidate timezone', async () => {
+  const { default: DraftReview } = await vite.ssrLoadModule('/src/assistant/DraftReview.vue')
+  const html = await renderToString(createSSRApp(DraftReview, { draft: {
+    draft_id: 'local-time', revision: 1, status: 'ready', confirmation_digest: 'digest',
+    expires_at: '2026-09-28T00:00:00Z', reference_now: '2026-09-27T04:00:00Z',
+    questions: [], related_action_ids: [],
+    candidates: [{ ...candidate('shanghai'), start_at: '2026-09-27T04:37:35.590506Z', end_at: '2026-09-27T06:07:35.590506Z' },
+      { ...candidate('tokyo'), timezone: 'Asia/Tokyo', start_at: '2026-09-27T16:00:00Z', end_at: null }],
+  }, pending: false }))
+  assert.match(html, /2026年9月27日 12:37/)
+  assert.match(html, /2026年9月27日 14:07/)
+  assert.match(html, /2026年9月28日 01:00/)
+  assert.match(html, /待补充/)
+  assert.doesNotMatch(html, /2026-09-27T04:37/)
+})
