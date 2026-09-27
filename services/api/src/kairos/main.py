@@ -21,6 +21,8 @@ from kairos.adapters.weather.open_meteo import OpenMeteoWeatherProvider
 from kairos.application.weather import WeatherLocationAmbiguous, WeatherService
 from kairos.application.tasks import FlexibleTaskService
 from kairos.application.assistant_tasks import AssistantService
+from kairos.application.conversations import ConversationService, ContextTooLarge
+from kairos.domain.conversations import ConversationConflict, ConversationNotFound
 from kairos.domain.tasks import (IdempotencyConflict as TaskIdempotencyConflict,
                                  InvalidTaskTransition, TaskNotFound, TaskVersionConflict)
 from kairos.application.reminders import ReminderService, ReminderConflict
@@ -61,6 +63,7 @@ def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None =
     runtime_assistant = assistant_client if assistant_client is not None else (
         MimoClient.from_environment() if runtime_task_assistant is None else None)
     runtime_weather = WeatherService(weather_provider or OpenMeteoWeatherProvider(), clock=runtime_clock.now)
+    conversation_service = ConversationService(repository, runtime_task_assistant)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -372,15 +375,59 @@ def create_app(db_path: str | None = None, *, clock=None, owner_id: str | None =
 
     @router.post("/conversations", response_model=s.Conversation)
     def conversation(idempotency_key: str = Header(alias="Idempotency-Key")) -> s.Conversation:
-        unavailable()
+        try:
+            record = conversation_service.create(trusted_owner_id, idempotency_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return s.Conversation(conversation_id=record.conversation_id, revision=record.revision)
 
     @router.post("/conversations/{conversation_id}/messages", response_model=s.MessageResponse)
-    def send_message(conversation_id: str, body: s.MessageRequest, idempotency_key: str = Header(alias="Idempotency-Key")) -> s.MessageResponse:
-        unavailable()
+    def send_message(conversation_id: str, body: s.MessageRequest,
+                     idempotency_key: str = Header(alias="Idempotency-Key")) -> s.MessageResponse:
+        if idempotency_key != body.client_message_id:
+            raise HTTPException(status_code=422,
+                detail="Idempotency-Key must match client_message_id")
+        image = None
+        if body.image is not None:
+            try:
+                image = validate_image(body.image.mime_type, body.image.data_base64)
+            except ImageValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
+        try:
+            result = conversation_service.append_turn(trusted_owner_id, conversation_id,
+                body.client_message_id, body.content, body.timezone, body.expected_sequence, image)
+        except ConversationNotFound:
+            raise HTTPException(status_code=404, detail="Conversation not found") from None
+        except ConversationConflict as exc:
+            revision = exc.current_revision if exc.current_revision is not None else exc.current_sequence
+            return JSONResponse(status_code=409, content=s.ErrorResponse(
+                code="CONVERSATION_CONFLICT", message=str(exc), request_id=str(uuid4()),
+                current_revision=revision).model_dump())
+        except ContextTooLarge as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except RuntimeError as exc:
+            if str(exc) == "assistant is not configured":
+                raise HTTPException(status_code=503, detail="MiMo is not configured") from None
+            raise HTTPException(status_code=502, detail="Assistant request failed; retry with the same message ID") from None
+        except Exception:
+            # Keep the reserved turn pending. The caller can safely retry the same ID.
+            raise HTTPException(status_code=502, detail="Assistant request failed; retry with the same message ID") from None
+        return s.MessageResponse.model_validate(result)
 
     @router.get("/conversations/{conversation_id}/messages", response_model=s.MessagePage)
     def get_messages(conversation_id: str, cursor: str | None = None) -> s.MessagePage:
-        unavailable()
+        try:
+            page = conversation_service.read(trusted_owner_id, conversation_id, _decode_cursor(cursor), 100)
+        except ConversationNotFound:
+            raise HTTPException(status_code=404, detail="Conversation not found") from None
+        return s.MessagePage(items=[s.ConversationMessage(
+            message_id=item.message_id, sequence=item.sequence, role=item.role, content=item.content,
+            created_at=item.created_at, status=item.status, action_results=item.action_results,
+            draft_refs=item.draft_refs) for item in page.items],
+            next_cursor=_encode_cursor(page.next_cursor) if page.next_cursor is not None else None,
+            draft_refs=page.draft_refs, revision=page.revision)
 
     @router.get("/weather", response_model=s.WeatherResponse)
     def weather(location_id: str, from_at: datetime | None = Query(default=None, alias="from"),
