@@ -91,6 +91,25 @@ def test_explicit_meeting_draft_does_not_fall_back_to_markdown_without_structure
     assert SqliteRepository(db).list_events("local") == []
 
 
+def test_relative_meeting_with_duration_and_room_creates_correct_structured_draft(tmp_path):
+    model = FixedModel(ModelTurn("日程信息还无法确认，请补充具体日期和开始／结束时间；暂未保存日程。"))
+    with TestClient(create_app(str(tmp_path / "relative-meeting-room.sqlite3"), owner_id="local",
+                               clock=FixedClock(), assistant_task_model=model)) as client:
+        response = client.post("/api/v1/assistant/chat", json={
+            "client_message_id": "relative-meeting-room", "timezone": "Asia/Shanghai",
+            "messages": [{"role": "user", "content": "我10分钟后有一个持续10分钟的会议在9阶1"}],
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft"]["status"] == "ready"
+    candidate = body["draft"]["candidates"][0]
+    assert candidate["title"] == "会议"
+    assert candidate["location"] == "9阶1"
+    assert candidate["start_at"] == "2026-09-26T20:10:00+08:00"
+    assert candidate["end_at"] == "2026-09-26T20:20:00+08:00"
+
+
 def test_user_confirmation_of_relative_time_asks_for_absolute_start_without_draft(tmp_path):
     db = tmp_path / "confirmed-relative-rigid.sqlite3"
     model = FixedModel(ModelTurn(None, (call("create_rigid_event_draft", {}),)))

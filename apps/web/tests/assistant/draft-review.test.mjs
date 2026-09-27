@@ -70,6 +70,7 @@ test('open panel exposes conversation, unsent text, draft and a light event noti
   assert.match(html, /请补充地点/)
   assert.match(html, /关闭助手/)
   assert.match(html, /回到场景/)
+  assert.match(html, /新对话/)
 })
 
 test('draft table and confirm button appear inside the assistant reply that introduced the draft', async () => {

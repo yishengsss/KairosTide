@@ -48,7 +48,11 @@ function returnToScene() {
       <template v-if="session.state.open">
         <header class="assistant-header">
           <h1 id="kairos-assistant-title">Kairos 助手</h1>
-          <ActionButton quiet aria-label="关闭助手" @click="closePanel">关闭</ActionButton>
+          <div class="assistant-header-actions">
+            <ActionButton quiet :disabled="session.state.pending !== null || session.state.conversationRestoring"
+              @click="session.startNewConversation">新对话</ActionButton>
+            <ActionButton quiet aria-label="关闭助手" @click="closePanel">关闭</ActionButton>
+          </div>
         </header>
         <div v-if="session.state.activeNotice" class="assistant-notice" role="status">
           <span>{{ session.state.activeNotice }}</span>
@@ -93,6 +97,7 @@ function returnToScene() {
 .assistant-panel.is-open { opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(0); transition-delay: 0s; }
 .assistant-surface { height: 100%; display: flex; flex-direction: column; border-radius: 1.5rem; overflow: hidden; }
 .assistant-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem; flex: none; }
+.assistant-header-actions { display: flex; align-items: center; gap: .4rem; }
 .assistant-header h1 { margin: 0; font-size: 1.18rem; line-height: 1.3; letter-spacing: -.01em; }
 .assistant-notice { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 1rem .75rem; padding: .5rem .65rem; border-radius: .75rem; background: #e8efe7; color: #233d2d; font-size: .875rem; }
 .assistant-notice span { min-width: 0; overflow-wrap: anywhere; }

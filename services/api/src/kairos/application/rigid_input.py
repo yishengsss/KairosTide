@@ -34,6 +34,7 @@ def parse_event_candidate(text: str, timezone: str, now: datetime) -> Candidate:
     local_now = now.astimezone(zone)
     date_text = re.search(r"(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<start>\d{1,2}:\d{2})\s*[-–到]\s*(?P<end>\d{1,2}:\d{2})\s+(?P<title>.+)", source)
     start = end = None
+    location = None
     title = source
     if date_text:
         day = date_text.group("date")
@@ -51,15 +52,26 @@ def parse_event_candidate(text: str, timezone: str, now: datetime) -> Candidate:
                         _hour(duration_hours.group(1)) * 60 if duration_hours else None)
             if duration is not None:
                 end = start + timedelta(minutes=duration)
-            title_match = re.search(r"(?:有个|有一个|有一场|开个|开一个|开一场|参加|去)([^，。]+?)(?=持续|时长|用时|，|。|$)", source)
-            if title_match:
-                title = title_match.group(1).strip()
+            title_match = re.search(
+                r"(?:有个|有一个|有一场|开个|开一个|开一场|参加|去)([^，。]*?)"
+                r"(?=持续|时长|用时|，|。|$)", source)
+            extracted_title = title_match.group(1).strip() if title_match else ""
+            if extracted_title:
+                title = extracted_title
                 if title == "会":
                     title = "会议"
-            elif re.search(r"开会|有个会|会议", source):
+            elif re.search(r"开会|会议", source):
                 title = "会议"
             elif "上课" in source:
                 title = "上课"
+            elif "课程" in source:
+                title = "课程"
+            location_match = re.search(
+                r"(?:地点\s*[:：]?\s*|在\s*)"
+                r"([\u3400-\u9fffA-Za-z0-9#-]*?(?:阶|号楼?|室|厅|馆|校区|教室|会议室)"
+                r"[\u3400-\u9fffA-Za-z0-9#-]*)", source)
+            if location_match:
+                location = location_match.group(1).strip()
         elif tomorrow:
             hour = _hour(tomorrow.group(2))
             period = tomorrow.group(1)
@@ -87,4 +99,4 @@ def parse_event_candidate(text: str, timezone: str, now: datetime) -> Candidate:
             title = "上课"
     if start is not None and end is not None:
         overlaps(start, end, start, end)
-    return Candidate("candidate-1", title or None, None, start, end, timezone)
+    return Candidate("candidate-1", title or None, location, start, end, timezone)

@@ -6,6 +6,7 @@ import pytest
 
 from kairos.application.assistant_tasks import AssistantService, ModelTurn, ToolCall
 from kairos.application.assistant_tasks import _user_intent
+from kairos.application.rigid_input import parse_event_candidate
 from kairos.application.weather import (WeatherLocation, WeatherLocationAmbiguous,
                                         WeatherLocationChoice, WeatherObservation, WeatherResult)
 
@@ -53,6 +54,18 @@ def handle(model, tasks, text="你好", message_id="msg-1"):
     return AssistantService(model, tasks).handle(
         "owner-a", message_id, "Asia/Shanghai", [{"role": "user", "content": text}]
     )
+
+
+def test_relative_meeting_with_duration_before_name_extracts_title_and_location():
+    now = datetime(2026, 9, 27, 2, 0, tzinfo=UTC)
+
+    candidate = parse_event_candidate(
+        "我10分钟后有一个持续10分钟的会议在9阶1", "Asia/Shanghai", now)
+
+    assert candidate.title == "会议"
+    assert candidate.location == "9阶1"
+    assert candidate.start_at.isoformat() == "2026-09-27T10:10:00+08:00"
+    assert candidate.end_at.isoformat() == "2026-09-27T10:20:00+08:00"
 
 
 def test_greeting_cannot_trigger_model_requested_task_query():

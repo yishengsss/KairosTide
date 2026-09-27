@@ -85,6 +85,7 @@ export interface AssistantCommands {
 interface KeyValueStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
+  removeItem?(key: string): void
 }
 
 interface PendingReminderAck {
@@ -237,6 +238,31 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
     state.conversationId = id
     try { storage?.setItem(conversationStorageKey, id) }
     catch { /* The conversation remains usable for this page even if storage is unavailable. */ }
+  }
+
+  function startNewConversation(): boolean {
+    if (state.pending || state.conversationRestoring) return false
+    state.conversationId = null
+    state.conversationRevision = 0
+    state.conversationLoaded = true
+    state.pendingConversationTurn = null
+    state.messages = []
+    state.draft = null
+    state.draftMessageIndex = null
+    state.draftConflict = null
+    state.proposalPendingId = null
+    state.proposalErrors = {}
+    state.proposalCommits = {}
+    state.error = ''
+    sendAttempt = null
+    createAttempt = null
+    commitAttempt = null
+    proposalAttempts.clear()
+    try {
+      if (storage?.removeItem) storage.removeItem(conversationStorageKey)
+      else storage?.setItem(conversationStorageKey, '')
+    } catch { /* A fresh session is still usable in memory without storage. */ }
+    return true
   }
 
   function restoreMessage(message: ConversationMessage): AssistantMessage {
@@ -750,7 +776,8 @@ export function createAssistantSession(initialCommands: AssistantCommands = {}, 
   }
 
   return { state, setCommands, open, close, setInput, setImage, setDraft, setActiveNotice, clearError, setReminder, refreshState,
-    acknowledgeReminder, chooseConflict, excuseOccurrence, sendMessage, retryPendingTurn, confirmDraft, confirmProposal, restoreConversation }
+    acknowledgeReminder, chooseConflict, excuseOccurrence, sendMessage, retryPendingTurn, confirmDraft, confirmProposal,
+    restoreConversation, startNewConversation }
 }
 
 export const assistantSession = createAssistantSession()

@@ -18,6 +18,7 @@ function fakeStorage() {
     values,
     getItem(key) { return values.get(key) ?? null },
     setItem(key, value) { values.set(key, value) },
+    removeItem(key) { values.delete(key) },
   }
 }
 
@@ -51,6 +52,44 @@ test('opens the stored conversation and restores transcript and current server d
   ])
   assert.equal(session.state.draft.draft_id, 'draft-live')
   assert.equal(session.state.draftMessageIndex, 1)
+})
+
+test('starting a new conversation clears old context and creates a fresh server conversation on send', async () => {
+  const storage = fakeStorage()
+  storage.setItem('kairos.assistant-conversation.v1', 'conversation-old')
+  const created = []
+  const appended = []
+  const session = createAssistantSession({
+    loadConversation: async () => ({ items: [userMessage('old-user', '旧上下文'),
+      assistantMessage('old-assistant', '旧回复', 2, ['draft-live'])],
+      draft_refs: ['draft-live'], next_cursor: null, revision: 2 }),
+    getDraft: async () => readyDraft,
+    createConversation: async key => {
+      created.push(key)
+      return { conversation_id: 'conversation-new', revision: 0 }
+    },
+    appendConversationTurn: async (id, request) => {
+      appended.push([id, request.content])
+      return { status: 'completed', revision: 2,
+        user_message: userMessage('new-user', request.content),
+        answer: assistantMessage('new-assistant', '新回复', 2), draft_refs: [], tool_results: [] }
+    },
+  }, storage)
+
+  assert.equal(await session.restoreConversation(), true)
+  session.setInput('保留的未发送内容')
+  assert.equal(session.startNewConversation(), true)
+  assert.equal(session.state.messages.length, 0)
+  assert.equal(session.state.draft, null)
+  assert.equal(session.state.conversationId, null)
+  assert.equal(session.state.input, '保留的未发送内容')
+  assert.equal(storage.getItem('kairos.assistant-conversation.v1'), null)
+
+  session.setInput('十分钟后开会持续十分钟')
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(created.length, 1)
+  assert.deepEqual(appended, [['conversation-new', '十分钟后开会持续十分钟']])
+  assert.equal(session.state.conversationId, 'conversation-new')
 })
 
 test('a send issued as the panel opens waits for history and uses the restored sequence', async () => {
