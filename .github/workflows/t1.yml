@@ -1,0 +1,27 @@
+name: T1 scaffold checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m venv services/api/.venv
+      - run: services/api/.venv/bin/python -m pip install -r services/api/requirements.lock
+      - run: services/api/.venv/bin/python -m pip install --no-deps -e services/api
+      - run: npm ci --ignore-scripts
+        working-directory: apps/web
+      - run: python3 scripts/check.py docs
+      - run: python3 scripts/check.py architecture
+      - run: python3 scripts/check.py contracts
+      - run: python3 scripts/check.py api
+      - run: python3 scripts/check.py web

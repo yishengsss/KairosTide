@@ -1,0 +1,1 @@
+"""External weather-provider adapters."""

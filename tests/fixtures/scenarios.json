@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "synthetic_only": true,
+  "scenarios": [
+    {
+      "id": "three-candidates-conflict-weather",
+      "user": { "user_id": "synthetic-user-01" },
+      "location": { "location_id": "synthetic-lake", "timezone": "Asia/Shanghai", "latitude": 34.26, "longitude": 108.95 },
+      "clocks": {
+        "real_clock": "2026-09-26T14:37:00+08:00",
+        "scene_clock": "2026-09-26T06:20:00+08:00",
+        "schedule_clock": "2026-09-26T14:55:00+08:00"
+      },
+      "events": [
+        { "event_id": "synthetic-event-a", "occurrence_id": "synthetic-occ-a", "title": "项目讨论", "location": "会议室甲", "start_at": "2026-09-26T15:00:00+08:00", "end_at": "2026-09-26T16:00:00+08:00", "version": 1 },
+        { "event_id": "synthetic-event-b", "occurrence_id": "synthetic-occ-b", "title": "课程", "location": "教室乙", "start_at": "2026-09-26T15:00:00+08:00", "end_at": "2026-09-26T16:30:00+08:00", "version": 1 }
+      ],
+      "draft_candidates": ["synthetic-candidate-1", "synthetic-candidate-2", "synthetic-candidate-3"],
+      "weather": [
+        { "condition": "clear", "availability": "available" },
+        { "condition": "partly_cloudy", "availability": "available" },
+        { "condition": "overcast", "availability": "available" },
+        { "condition": "rain", "availability": "available" },
+        { "condition": "fog", "availability": "available" },
+        { "condition": "snow", "availability": "available" },
+        { "condition": null, "availability": "unavailable" },
+        { "condition": "rain", "availability": "stale" }
+      ]
+    }
+  ]
+}

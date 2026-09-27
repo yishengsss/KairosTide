@@ -1,0 +1,14 @@
+.DS_Store
+.env
+**/.venv/
+**/.venv-*/
+**/node_modules/
+**/__pycache__/
+**/.pytest_cache/
+**/dist/
+**/.vite/
+**/var/
+*.pyc
+
+/output/blender/*/*.blend1
+/output/blender/*/build.log
