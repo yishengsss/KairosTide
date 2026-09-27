@@ -49,6 +49,26 @@ def test_reservation_completion_and_ordered_pages_survive_restart(tmp_path):
     assert next_page.next_cursor is None
 
 
+def test_page_exposes_durable_pending_client_id_until_completion(tmp_path):
+    path = tmp_path / "conversation.db"
+    store = SqliteRepository(path)
+    cid = store.create_conversation("alice", "create", "h0").conversation_id
+    store.reserve_conversation_turn("alice", cid, "first-client-id", "first", "UTC", 0, "h1")
+    store.complete_conversation_turn("alice", cid, "first-client-id", "answered", [], [])
+    store.reserve_conversation_turn("alice", cid, "pending-client-id", "retry me", "UTC", 2, "h2")
+
+    reopened = SqliteRepository(path)
+    first_page = reopened.list_conversation_messages("alice", cid, 0, 1)
+    assert first_page.items[0].sequence == 1
+    assert first_page.pending_client_message_id == "pending-client-id"
+    assert reopened.list_conversation_messages("alice", cid, 2, 10).pending_client_message_id == "pending-client-id"
+    with pytest.raises(ConversationNotFound):
+        reopened.list_conversation_messages("bob", cid, 0, 10)
+
+    reopened.complete_conversation_turn("alice", cid, "pending-client-id", "done", [], [])
+    assert reopened.list_conversation_messages("alice", cid, 0, 10).pending_client_message_id is None
+
+
 def test_retry_preserves_original_response_and_blocks_changed_or_new_pending_turn(tmp_path):
     store = SqliteRepository(tmp_path / "conversation.db")
     cid = store.create_conversation("alice", "create", "hash").conversation_id

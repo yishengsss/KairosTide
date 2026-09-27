@@ -57,3 +57,4 @@ class ConversationPage:
     next_cursor: int | None
     revision: int
     draft_refs: list[str]
+    pending_client_message_id: str | None

@@ -483,8 +483,12 @@ class SqliteRepository:
                 (owner_id, conversation_id, after_sequence, limit + 1)).fetchall()
             items = [self._conversation_message_from_row(row) for row in rows[:limit]]
             draft_refs = list(dict.fromkeys(ref for item in items for ref in item.draft_refs))
+            pending = connection.execute("""SELECT client_message_id FROM conversation_turns
+                WHERE owner_id = ? AND conversation_id = ? AND status = 'pending'""",
+                (owner_id, conversation_id)).fetchone()
             return ConversationPage(items, items[-1].sequence if len(rows) > limit else None,
-                                    conversation["revision"], draft_refs)
+                                    conversation["revision"], draft_refs,
+                                    pending["client_message_id"] if pending else None)
 
     def save_draft(self, draft: Draft) -> None:
         with self._connect() as connection:
