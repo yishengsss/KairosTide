@@ -116,6 +116,7 @@ def test_transport_exposes_stored_status_and_rejects_client_history():
     [{"payload": base64.b64encode(b"image bytes").decode()}],
     [{"data": base64.b64encode(b"raw image content " * 20).decode()}],
     [{"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="}],
+    [{"data": base64.b64encode(b'\xef\xbb\xbf \n<?xml version="1.0"?><!--x--><svg/>').decode()}],
 ])
 def test_completion_rejects_image_material_without_persisting_it(tmp_path, action_results):
     store = SqliteRepository(tmp_path / "conversation.db")

@@ -42,6 +42,7 @@ def _hash(data) -> str:
 
 _IMAGE_URL = re.compile(r"https?://[^\s\"'<>?#]+\.(?:png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#\s\"'<>)]|$)", re.I)
 _ENCODED_PAYLOAD = re.compile(r"[A-Za-z0-9+/]{126,}={0,2}")
+_SVG_ROOT = re.compile(rb"(?:\xef\xbb\xbf)?\s*(?:(?:<\?xml[^>]*\?>|<!--.*?-->)\s*)*<svg(?:\s|/|>)", re.I | re.S)
 
 
 def _reject_image_material(value, *, action_result: bool = False) -> None:
@@ -64,7 +65,7 @@ def _reject_image_material(value, *, action_result: bool = False) -> None:
                                                      b"GIF89a", b"BM", b"II*\x00", b"MM\x00*"))
                                  or decoded[8:12] == b"WEBP"
                                  or decoded[4:12] in {b"ftypavif", b"ftypheic", b"ftypheix"}
-                                 or decoded.lstrip().startswith(b"<svg"))
+                                 or _SVG_ROOT.match(decoded[:128]) is not None)
         if ("data:image/" in value.lower() or value.lower().startswith("image/")
                 or _IMAGE_URL.search(value) or looks_encoded or encoded_image
                 or (action_result and re.search(r"https?://", value, re.I))):
