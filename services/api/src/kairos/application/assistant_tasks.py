@@ -569,11 +569,18 @@ def _contextual_query_intent(messages: list[dict[str, Any]]) -> str | None:
     assistant_text = messages[current_index - 1].get("content")
     if not isinstance(assistant_text, str):
         return None
-    if (_QUERY_KIND_CLARIFICATION.search(assistant_text)
+    choosing_kind = bool(_QUERY_KIND_CLARIFICATION.search(assistant_text) or (
+        _FLEXIBLE_QUERY_KIND.search(assistant_text)
+        and _RIGID_QUERY_SUBJECT.search(assistant_text)
+        and re.search(r"查看|查询|想看|哪一类|哪种", assistant_text)))
+    if choosing_kind and re.fullmatch(
+            r"(?:两者|两种|两个|全部)?都(?:看|要看|查看|查询|要)|全部|一起看", current_text.strip("。！!？? ")):
+        return "query_all_schedules"
+    if (choosing_kind
             and _FLEXIBLE_QUERY_KIND.search(current_text)
             and not _RIGID_QUERY_SUBJECT.search(current_text)):
         return "query_flexible_tasks"
-    if (_QUERY_KIND_CLARIFICATION.search(assistant_text)
+    if (choosing_kind
             and _RIGID_QUERY_SUBJECT.search(current_text)
             and not _FLEXIBLE_QUERY_KIND.search(current_text)):
         return "query_rigid_events"
@@ -848,6 +855,23 @@ class AssistantService:
         if contextual_query_intent is not None:
             intent = contextual_query_intent
         image_schedule_authorized = image is not None and _image_schedule_was_authorized(messages)
+        if contextual_query_intent == "query_all_schedules" and image is None:
+            outcomes = []
+            answers = []
+            for action, label in (("query_rigid_events", "固定时间日程"),
+                                  ("query_flexible_tasks", "柔性任务")):
+                outcome = self._execute(
+                    ToolCall(call_id=f"server-{action}", name=action, arguments_json="{}"),
+                    action, owner_id, client_message_id, timezone, 0, False,
+                    current_text, now, contextual_query_authorized=True)
+                outcomes.append(outcome)
+                if outcome.status == "succeeded":
+                    answer = (_rigid_query_answer(outcome.data, timezone)
+                              if action == "query_rigid_events" else _query_answer(outcome.data))
+                else:
+                    answer = "暂时无法读取，请稍后重试。"
+                answers.append(f"{label}：\n{answer}")
+            return AssistantResult("\n\n".join(answers), tuple(outcomes))
         if intent == "query_flexible_tasks":
             if (contextual_query_intent == intent
                     or _model_action_has_user_basis(intent, current_text, timezone, now)):

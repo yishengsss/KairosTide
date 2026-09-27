@@ -1311,3 +1311,50 @@ def test_duration_before_course_name_preserves_specific_title():
     assert candidate.title == '网络工程课程'
     assert candidate.location == '9阶1'
     assert (candidate.end_at - candidate.start_at).total_seconds() == 5400
+
+
+@pytest.mark.parametrize('reply', ['都看', '两者都看', '都要', '全部都看'])
+def test_both_query_choice_reads_both_record_types(reply):
+    class Events:
+        def __init__(self): self.calls = []
+        def list_occurrences(self, owner, start, end):
+            self.calls.append((owner, start, end))
+            return []
+    tasks, events = FakeTasks(), Events()
+    service = AssistantService(FakeModel(ModelTurn('请再次选择类型')), tasks,
+                               rigid_events=events)
+    result = service.handle('owner-a', 'both-query', 'Asia/Shanghai', [
+        {'role': 'user', 'content': '又哪些规划'},
+        {'role': 'assistant', 'content': '请问你想查看哪一类呢？\n1. **固定时间日程**（有确定开始时间的安排）\n2. **柔性任务**（没有固定时间、可灵活处理的事项）\n或者两者都要看也可以，告诉我就行。'},
+        {'role': 'user', 'content': reply},
+    ])
+    assert tasks.listed == 1
+    assert len(events.calls) == 1
+    assert {r.action for r in result.action_results} == {'query_rigid_events', 'query_flexible_tasks'}
+    assert '高数作业' in result.answer
+    assert '没有已保存的刚性日程' in result.answer
+    assert not tasks.created and not tasks.updated and not tasks.deleted
+
+
+def test_both_choice_without_schedule_query_context_reads_nothing():
+    tasks = FakeTasks()
+    result = handle(FakeModel(ModelTurn('请说明要查看什么')), tasks, '都看')
+    assert tasks.listed == 0
+    assert result.action_results == ()
+
+
+def test_both_query_retains_success_when_other_source_is_unavailable():
+    class UnavailableEvents:
+        def list_occurrences(self, *args):
+            raise RuntimeError('offline')
+    tasks = FakeTasks()
+    service = AssistantService(FakeModel(), tasks, rigid_events=UnavailableEvents())
+    result = service.handle('owner-a', 'both-partial', 'Asia/Shanghai', [
+        {'role': 'user', 'content': '有哪些规划'},
+        {'role': 'assistant', 'content': '想查看固定时间日程还是柔性任务？'},
+        {'role': 'user', 'content': '都看'},
+    ])
+    assert result.action_results[0].status == 'failed'
+    assert result.action_results[1].status == 'succeeded'
+    assert '高数作业' in result.answer and '暂时无法读取' in result.answer
+    assert '没有已保存的刚性日程' not in result.answer
