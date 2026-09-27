@@ -68,3 +68,7 @@ python3 scripts/check.py web
 - [记忆目录索引](docs/memory/README.md)：说明长期记忆与历史研读记录的用途。
 - [前端规范](docs/design/FRONTEND_SPEC.md) · [状态模型](docs/design/STATE_MODEL.md) · [视觉质量记录](docs/design/VISUAL_QUALITY.md)
 - [架构提案](ARCHITECTURE.md) · [Harness 与验收](docs/engineering/HARNESS.md)
+
+## 许可证
+
+本项目按 [MIT License](LICENSE) 发布。
