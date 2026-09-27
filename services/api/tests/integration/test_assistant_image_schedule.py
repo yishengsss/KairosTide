@@ -143,6 +143,52 @@ def test_image_import_followup_keeps_explicit_user_authorization(tmp_path):
     assert SqliteRepository(tmp_path / "image-followup.sqlite3").list_events("local") == []
 
 
+def test_affirmative_reply_accepts_assistant_offer_to_make_image_schedule_draft(tmp_path):
+    model = FixedModel({"events": [{"title": "软件工程", "frequency": "once",
+        "date": "2026-09-30", "location": "8#602D",
+        "start_time": "08:00", "end_time": "09:35"}]})
+    db = tmp_path / "image-offer-accepted.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    history = [
+        {"role": "user", "content": "请识别图片中的信息并告诉我能看出什么。"},
+        {"role": "assistant", "content": (
+            "这是一张课程表。如果你需要，我可以帮你把这几门课整理成待确认的日程草稿"
+            "（保存前需要你确认）。")},
+        {"role": "user", "content": "好的"},
+    ]
+    with TestClient(app) as client:
+        response = post_image(client, "image-offer-accepted", prompt="好的", messages=history)
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["draft"]["status"] == "ready"
+    assert body["draft"]["candidates"][0]["title"] == "软件工程"
+    assert body.get("retain_image", False) is False
+    assert model.tools == []
+    assert SqliteRepository(db).list_events("local") == []
+
+
+def test_affirmative_reply_does_not_accept_unrelated_assistant_offer(tmp_path):
+    model = FixedModel({"events": [{"title": "不应导入", "frequency": "once",
+        "date": "2026-09-30", "start_time": "08:00", "end_time": "09:35"}]})
+    db = tmp_path / "image-unrelated-offer.sqlite3"
+    app = create_app(str(db), owner_id="local", clock=FixedClock(), assistant_task_model=model)
+    history = [
+        {"role": "user", "content": "请识别图片中的信息并告诉我能看出什么。"},
+        {"role": "assistant", "content": "如果你需要，我可以再详细描述一下图片内容。"},
+        {"role": "user", "content": "好的"},
+    ]
+    with TestClient(app) as client:
+        response = post_image(client, "image-unrelated-offer", prompt="好的", messages=history)
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["draft"] is None
+    assert body["retain_image"] is True
+    assert model.tools == []
+    assert SqliteRepository(db).list_events("local") == []
+
+
 def test_old_schedule_request_does_not_authorize_a_new_unrelated_image(tmp_path):
     model = FixedModel({"events": [{"title": "不应保存", "frequency": "weekly", "weekdays": [1],
         "starts_on": "2026-09-28", "ends_on": "2026-12-28",

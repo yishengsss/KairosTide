@@ -272,6 +272,10 @@ _IMAGE_DENIAL = re.compile(
     r"(?:取消|撤销).{0,8}(?:图片|图像)(?:分析|识别|导入|提取)?", re.I)
 _IMAGE_SCHEDULE_CLARIFICATION = re.compile(r"固定安排还是待完成事项|固定安排|待完成事项|开始日期和结束日期|课表起止日期|补充.{0,12}(?:时间|日期)", re.I)
 _IMAGE_SCHEDULE_FOLLOWUP = re.compile(r"固定|刚性|日程|课表|课程|日期|时间|(?:19|20)\d{2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]", re.I)
+_IMAGE_SCHEDULE_OFFER = re.compile(
+    r"(?:帮你|为你).{0,36}(?:整理|生成|创建|转换|转成|导入).{0,36}(?:待确认|草稿|日程)|"
+    r"(?:整理|生成|创建).{0,24}(?:待确认的?)?(?:日程|安排)草稿", re.I)
+_AFFIRMATIVE_REPLY = re.compile(r"(?:好的?|可以|没问题|确认|行|ok|yes|sure)[。！!？?\s]*", re.I)
 _RIGID_CHANGE_SUBJECT = re.compile(r"课|课程|上课|会|会议|预约|行程|日程|事件|考试|面试|讲座|event|meeting|class|schedule|calendar", re.I)
 _RIGID_CHANGE_ACTION = re.compile(r"删除|删掉|移除|取消|修改|更新|改成|改为|改到|改一下|调整|换到|移到|delete|remove|cancel|change|update", re.I)
 _RIGID_UPDATE_VERB = re.compile(r"修改|更新|改成|改为|改到|改一下|调整|换到|移到|更名|change|update|reschedule", re.I)
@@ -568,6 +572,12 @@ def _image_schedule_was_authorized(messages: list[dict[str, Any]]) -> bool:
     if prior_user_index is None or not isinstance(assistant_text, str):
         return False
     prior_text = messages[prior_user_index]["content"]
+    if (_AFFIRMATIVE_REPLY.fullmatch(current_text.strip())
+            and _IMAGE_SCHEDULE_OFFER.search(assistant_text)
+            and not _IMAGE_DENIAL.search(assistant_text)
+            and not _IMAGE_DENIAL.search(current_text)
+            and not _HYPOTHETICAL.search(current_text)):
+        return True
     return bool(_IMAGE_SCHEDULE_REQUEST.search(prior_text)
                 and not _IMAGE_DENIAL.search(prior_text)
                 and not _HYPOTHETICAL.search(prior_text)
