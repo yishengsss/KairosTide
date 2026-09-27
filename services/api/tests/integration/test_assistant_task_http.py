@@ -60,6 +60,37 @@ def test_model_classifies_relative_meeting_as_rigid_and_returns_uncommitted_draf
     assert SqliteRepository(db).list_events("local") == []
 
 
+def test_explicit_meeting_draft_does_not_fall_back_to_markdown_without_structured_draft(tmp_path):
+    db = tmp_path / "markdown-meeting-draft.sqlite3"
+    model = FixedModel(ModelTurn(
+        "好的，以当前时间推算，会议是今天 20:10 开始、20:20 结束。\n\n"
+        "📅 **会议**（草稿，未保存）\n\n确认无误后告诉我保存。"))
+    with TestClient(create_app(str(db), owner_id="local", clock=FixedClock(),
+                               assistant_task_model=model)) as client:
+        conversation = client.post("/api/v1/conversations",
+            headers={"Idempotency-Key": "markdown-draft-conversation"}).json()
+        conversation_id = conversation["conversation_id"]
+        response = client.post(f"/api/v1/conversations/{conversation_id}/messages", json={
+            "client_message_id": "markdown-meeting-draft",
+            "content": "十分钟后有一个会议持续10分钟", "timezone": "Asia/Shanghai",
+            "expected_sequence": 0,
+        }, headers={"Idempotency-Key": "markdown-meeting-draft"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["draft_refs"]
+        draft_response = client.get(f"/api/v1/drafts/{body['draft_refs'][0]}")
+
+    assert draft_response.status_code == 200
+    draft = draft_response.json()
+    assert draft["status"] == "ready"
+    assert draft["candidates"][0]["title"] == "会议"
+    assert draft["candidates"][0]["start_at"] == "2026-09-26T12:10:00Z"
+    assert draft["candidates"][0]["end_at"] == "2026-09-26T12:20:00Z"
+    assert body["answer"]["content"] == "已生成刚性事件草稿，尚未保存。请检查内容并确认。"
+    assert body["answer"]["draft_refs"] == body["draft_refs"]
+    assert SqliteRepository(db).list_events("local") == []
+
+
 def test_user_confirmation_of_relative_time_asks_for_absolute_start_without_draft(tmp_path):
     db = tmp_path / "confirmed-relative-rigid.sqlite3"
     model = FixedModel(ModelTurn(None, (call("create_rigid_event_draft", {}),)))

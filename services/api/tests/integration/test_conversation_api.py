@@ -43,15 +43,15 @@ def test_create_append_read_and_owner_scope(tmp_path):
     with TestClient(create_app(str(db), owner_id="owner-a", clock=FixedClock(),
                                assistant_task_model=model)) as client:
         conversation_id = create(client)
-        response = send(client, conversation_id, "msg-1", "十分钟后有个会议", 0)
+        response = send(client, conversation_id, "msg-1", "你好", 0)
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "completed"
-        assert body["user_message"]["content"] == "十分钟后有个会议"
+        assert body["user_message"]["content"] == "你好"
         assert body["answer"]["content"] == "收到"
         page = client.get(f"/api/v1/conversations/{conversation_id}/messages")
         assert page.status_code == 200
-        assert [item["content"] for item in page.json()["items"]] == ["十分钟后有个会议", "收到"]
+        assert [item["content"] for item in page.json()["items"]] == ["你好", "收到"]
 
     with TestClient(create_app(str(db), owner_id="owner-b", clock=FixedClock(),
                                assistant_task_model=RecordingModel())) as foreign:
@@ -235,10 +235,10 @@ def test_pending_same_id_resumes_but_new_message_and_stale_sequence_conflict(tmp
     with TestClient(create_app(str(tmp_path / "pending.sqlite3"), owner_id="owner-a",
                                clock=FixedClock(), assistant_task_model=model)) as client:
         conversation_id = create(client)
-        failed = send(client, conversation_id, "pending-id", "十分钟后有个会议", 0)
+        failed = send(client, conversation_id, "pending-id", "普通消息", 0)
         pending_page = client.get(f"/api/v1/conversations/{conversation_id}/messages")
         competing = send(client, conversation_id, "other-id", "其他消息", 1)
-        resumed = send(client, conversation_id, "pending-id", "十分钟后有个会议", 0)
+        resumed = send(client, conversation_id, "pending-id", "普通消息", 0)
         completed_page = client.get(f"/api/v1/conversations/{conversation_id}/messages")
         stale = send(client, conversation_id, "next", "新消息", 0)
     assert failed.status_code == 500 or failed.status_code == 502

@@ -93,6 +93,39 @@ test('draft table and confirm button appear inside the assistant reply that intr
   assert.match(html, /确认保存全部项目/)
 })
 
+test('a structured draft reference returned by the conversation API renders its confirmation card', async () => {
+  const { default: AssistantPanel } = await vite.ssrLoadModule('/src/assistant/AssistantPanel.vue')
+  const { createAssistantSession } = await vite.ssrLoadModule('/src/assistant/sessionStore.ts')
+  const readyDraft = {
+    draft_id: 'draft-from-turn', revision: 1, status: 'ready', confirmation_digest: 'digest',
+    expires_at: '2026-09-29T16:00:00+08:00', reference_now: '2026-09-27T10:00:00+08:00',
+    questions: [], related_action_ids: [], candidates: [candidate('meeting')],
+  }
+  const session = createAssistantSession({
+    createConversation: async () => ({ conversation_id: 'conversation-1', revision: 0 }),
+    appendConversationTurn: async (_id, request) => ({
+      status: 'completed', revision: 2,
+      user_message: { message_id: request.client_message_id, role: 'user', content: request.content,
+        sequence: 1, status: 'completed', created_at: '2026-09-27T10:00:00Z', draft_refs: [], action_results: [] },
+      answer: { message_id: 'assistant-1', role: 'assistant',
+        content: '已生成刚性事件草稿，尚未保存。请检查内容并确认。', sequence: 2,
+        status: 'completed', created_at: '2026-09-27T10:00:01Z', draft_refs: ['draft-from-turn'], action_results: [] },
+      draft_refs: ['draft-from-turn'], tool_results: [],
+    }),
+    getDraft: async id => { assert.equal(id, 'draft-from-turn'); return readyDraft },
+  })
+  session.open()
+  session.setInput('十分钟后有一个会议持续10分钟')
+
+  assert.equal(await session.sendMessage(), true)
+  assert.equal(session.state.draft.draft_id, 'draft-from-turn')
+  assert.equal(session.state.draftMessageIndex, 1)
+  const html = await renderToString(createSSRApp(AssistantPanel, { session }))
+  assert.match(html, /未保存草稿/)
+  assert.match(html, /确认保存全部项目/)
+  assert.match(html, /候选 meeting/)
+})
+
 test('closed panel is inert and does not expose draft as page content', async () => {
   const { default: AssistantPanel } = await vite.ssrLoadModule('/src/assistant/AssistantPanel.vue')
   const { createAssistantSession } = await vite.ssrLoadModule('/src/assistant/sessionStore.ts')

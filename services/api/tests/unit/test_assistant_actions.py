@@ -421,29 +421,33 @@ def test_model_decision_does_not_authorize_tool_without_user_basis():
     assert result.action_results == ()
 
 
-def test_delayed_confirmation_of_relative_start_requests_absolute_time_instead_of_shifting():
+def test_relative_rigid_request_gets_structured_draft_and_later_confirmation_does_not_shift_it():
     class Drafts:
         def __init__(self): self.created = []
         def create(self, owner_id, candidates, source_message_id, idempotency_key=None,
                    request_hash=None, *, reference_now=None):
             self.created.append(candidates[0])
             from types import SimpleNamespace
-            return SimpleNamespace(draft_id="draft-2")
+            return SimpleNamespace(draft_id="draft-2", candidates=tuple(candidates))
     drafts = Drafts()
     moments = iter([datetime(2026, 9, 26, 14, 15, tzinfo=UTC),
                     datetime(2026, 9, 26, 14, 45, tzinfo=UTC)])
     model = FakeModel(ModelTurn("按当前时间推算为22:25至22:35，是否正确？确认后生成日程草稿。"),
                       ModelTurn(None, [tool("create_rigid_event_draft", {})]))
     service = AssistantService(model, FakeTasks(), drafts=drafts, clock=lambda: next(moments))
-    service.handle("owner-a", "initial-meeting", "Asia/Shanghai", [
+    initial = service.handle("owner-a", "initial-meeting", "Asia/Shanghai", [
         {"role": "user", "content": "10分钟后开会，持续10分钟"}])
+    assert initial.draft is not None
+    assert initial.draft.candidates[0].start_at.strftime("%H:%M") == "22:25"
+    assert initial.draft.candidates[0].end_at.strftime("%H:%M") == "22:35"
     result = service.handle("owner-a", "confirm-meeting", "Asia/Shanghai", [
         {"role": "user", "content": "10分钟后开会，持续10分钟"},
         {"role": "assistant", "content": "按当前时间推算为22:25至22:35，是否正确？确认后生成日程草稿。"},
         {"role": "user", "content": "确认"},
     ])
     assert result.draft is None
-    assert drafts.created == []
+    assert len(drafts.created) == 1
+    assert drafts.created[0].start_at.strftime("%H:%M") == "22:25"
     assert "具体" in result.answer and "开始时间" in result.answer
 
 
