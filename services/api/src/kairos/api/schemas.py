@@ -312,10 +312,10 @@ class Conversation(DTO):
 
 
 class MessageRequest(DTO):
-    client_message_id: str
-    content: str
-    timezone: str
-    expected_sequence: int
+    client_message_id: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=5000)
+    timezone: str = Field(min_length=1)
+    expected_sequence: int = Field(ge=0)
 
 
 class ConversationMessage(DTO):
@@ -324,10 +324,15 @@ class ConversationMessage(DTO):
     role: Literal["user", "assistant"]
     content: str
     created_at: datetime
+    status: Literal["pending", "completed"]
+    action_results: list[dict[str, Any]] = Field(default_factory=list)
+    draft_refs: list[str] = Field(default_factory=list)
 
 
 class MessageResponse(DTO):
-    answer: ConversationMessage
+    user_message: ConversationMessage
+    answer: ConversationMessage | None
+    status: Literal["pending", "completed"]
     tool_results: list[dict[str, Any]]
     draft_refs: list[str]
     revision: int
@@ -337,6 +342,7 @@ class MessagePage(DTO):
     items: list[ConversationMessage]
     next_cursor: str | None
     draft_refs: list[str]
+    revision: int
 
 
 class AssistantChatMessage(DTO):

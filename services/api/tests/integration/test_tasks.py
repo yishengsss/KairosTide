@@ -54,7 +54,7 @@ def test_migrations_are_recorded_once_and_legacy_database_gets_new_schema(tmp_pa
     first = SqliteRepository(path)
     with first._connect() as connection:
         before = connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
-    assert [row[0] for row in before] == ["001_initial.sql", "002_flexible_tasks.sql", "003_rigid_changes.sql", "004_flexible_task_lifecycle.sql"]
+    assert [row[0] for row in before] == ["001_initial.sql", "002_flexible_tasks.sql", "003_rigid_changes.sql", "004_flexible_task_lifecycle.sql", "005_conversations.sql"]
     second = SqliteRepository(path)
     with second._connect() as connection:
         after = connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()

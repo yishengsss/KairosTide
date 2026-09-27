@@ -588,6 +588,14 @@
       "ConversationMessage": {
         "additionalProperties": false,
         "properties": {
+          "action_results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Action Results",
+            "type": "array"
+          },
           "content": {
             "title": "Content",
             "type": "string"
@@ -596,6 +604,13 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "draft_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Draft Refs",
+            "type": "array"
           },
           "message_id": {
             "title": "Message Id",
@@ -612,6 +627,14 @@
           "sequence": {
             "title": "Sequence",
             "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
@@ -619,7 +642,8 @@
           "sequence",
           "role",
           "content",
-          "created_at"
+          "created_at",
+          "status"
         ],
         "title": "ConversationMessage",
         "type": "object"
@@ -1329,12 +1353,17 @@
               }
             ],
             "title": "Next Cursor"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
           }
         },
         "required": [
           "items",
           "next_cursor",
-          "draft_refs"
+          "draft_refs",
+          "revision"
         ],
         "title": "MessagePage",
         "type": "object"
@@ -1343,18 +1372,23 @@
         "additionalProperties": false,
         "properties": {
           "client_message_id": {
+            "minLength": 1,
             "title": "Client Message Id",
             "type": "string"
           },
           "content": {
+            "maxLength": 5000,
+            "minLength": 1,
             "title": "Content",
             "type": "string"
           },
           "expected_sequence": {
+            "minimum": 0.0,
             "title": "Expected Sequence",
             "type": "integer"
           },
           "timezone": {
+            "minLength": 1,
             "title": "Timezone",
             "type": "string"
           }
@@ -1372,7 +1406,14 @@
         "additionalProperties": false,
         "properties": {
           "answer": {
-            "$ref": "#/components/schemas/ConversationMessage"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationMessage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "draft_refs": {
             "items": {
@@ -1385,6 +1426,14 @@
             "title": "Revision",
             "type": "integer"
           },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
           "tool_results": {
             "items": {
               "additionalProperties": true,
@@ -1392,10 +1441,15 @@
             },
             "title": "Tool Results",
             "type": "array"
+          },
+          "user_message": {
+            "$ref": "#/components/schemas/ConversationMessage"
           }
         },
         "required": [
+          "user_message",
           "answer",
+          "status",
           "tool_results",
           "draft_refs",
           "revision"

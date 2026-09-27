@@ -9,6 +9,9 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from kairos.application.draft_commit import CommitResult, ConflictReviewRequired
 from kairos.domain.conflicts import pairs
+from kairos.domain.conversations import (ConversationConflict, ConversationMessageRecord,
+                                         ConversationNotFound, ConversationPage, ConversationRecord,
+                                         ConversationTurn)
 from kairos.domain.attention import conflict_groups, state_revision
 from kairos.domain.drafts import Candidate, Draft, DraftNotReady, IdempotencyConflict, RevisionConflict, make_draft
 from kairos.domain.events import EventSeries, Occurrence, RecurrenceRule
@@ -274,6 +277,164 @@ class SqliteRepository:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    @staticmethod
+    def _conversation_from_row(row: sqlite3.Row) -> ConversationRecord:
+        return ConversationRecord(row["conversation_id"], row["owner_id"], row["revision"],
+                                  datetime.fromisoformat(row["created_at"]),
+                                  datetime.fromisoformat(row["updated_at"]))
+
+    @staticmethod
+    def _conversation_message_from_row(row: sqlite3.Row) -> ConversationMessageRecord:
+        return ConversationMessageRecord(row["message_id"], row["conversation_id"], row["sequence"],
+                                         row["role"], row["content"], datetime.fromisoformat(row["created_at"]),
+                                         row["status"], json.loads(row["action_results_json"]),
+                                         json.loads(row["draft_refs_json"]))
+
+    @classmethod
+    def _conversation_turn_from_row(cls, connection: sqlite3.Connection, row: sqlite3.Row,
+                                    revision: int) -> ConversationTurn:
+        user = connection.execute("SELECT * FROM conversation_messages WHERE message_id = ?",
+                                  (row["user_message_id"],)).fetchone()
+        assistant = connection.execute("SELECT * FROM conversation_messages WHERE message_id = ?",
+                                       (row["assistant_message_id"],)).fetchone() if row["assistant_message_id"] else None
+        user_record = cls._conversation_message_from_row(user)
+        assistant_record = cls._conversation_message_from_row(assistant) if assistant else None
+        return ConversationTurn(row["conversation_id"], row["client_message_id"], user_record,
+                                assistant_record, row["status"],
+                                assistant_record.action_results if assistant_record else [],
+                                assistant_record.draft_refs if assistant_record else [],
+                                assistant_record.sequence if assistant_record else user_record.sequence)
+
+    @staticmethod
+    def _owned_conversation(connection: sqlite3.Connection, owner_id: str,
+                            conversation_id: str) -> sqlite3.Row:
+        row = connection.execute("SELECT * FROM conversations WHERE owner_id = ? AND conversation_id = ?",
+                                 (owner_id, conversation_id)).fetchone()
+        if row is None:
+            raise ConversationNotFound(conversation_id)
+        return row
+
+    def create_conversation(self, owner_id: str, idempotency_key: str,
+                            request_hash: str) -> ConversationRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                previous = self._idempotent(connection, owner_id, "conversation_create",
+                                            idempotency_key, request_hash)
+            except IdempotencyConflict as exc:
+                raise ConversationConflict(str(exc)) from exc
+            if previous is not None:
+                return self._conversation_from_row(connection.execute(
+                    "SELECT * FROM conversations WHERE owner_id = ? AND conversation_id = ?",
+                    (owner_id, previous["conversation_id"])).fetchone())
+            now = _iso(datetime.now(UTC))
+            conversation_id = f"conv_{uuid4().hex}"
+            connection.execute("""INSERT INTO conversations
+                (conversation_id, owner_id, revision, created_at, updated_at) VALUES (?, ?, 0, ?, ?)""",
+                (conversation_id, owner_id, now, now))
+            self._save_idempotent(connection, owner_id, "conversation_create", idempotency_key,
+                                  request_hash, {"conversation_id": conversation_id})
+            return self._conversation_from_row(self._owned_conversation(connection, owner_id, conversation_id))
+
+    def get_conversation(self, owner_id: str, conversation_id: str) -> ConversationRecord | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM conversations WHERE owner_id = ? AND conversation_id = ?",
+                                     (owner_id, conversation_id)).fetchone()
+            return self._conversation_from_row(row) if row else None
+
+    def reserve_conversation_turn(self, owner_id: str, conversation_id: str, client_message_id: str,
+                                  content: str, timezone: str, expected_sequence: int,
+                                  request_hash: str) -> ConversationTurn:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            conversation = self._owned_conversation(connection, owner_id, conversation_id)
+            prior = connection.execute("""SELECT * FROM conversation_turns WHERE owner_id = ?
+                AND conversation_id = ? AND client_message_id = ?""",
+                (owner_id, conversation_id, client_message_id)).fetchone()
+            if prior is not None:
+                if (prior["request_hash"] != request_hash or prior["request_content"] != content or
+                    prior["timezone"] != timezone or prior["expected_sequence"] != expected_sequence):
+                    raise ConversationConflict("client message ID reused for a different request",
+                                               current_sequence=conversation["revision"],
+                                               current_revision=conversation["revision"])
+                return self._conversation_turn_from_row(connection, prior, conversation["revision"])
+            pending = connection.execute("""SELECT 1 FROM conversation_turns WHERE owner_id = ?
+                AND conversation_id = ? AND status = 'pending'""", (owner_id, conversation_id)).fetchone()
+            if pending:
+                raise ConversationConflict("another turn is pending", current_sequence=conversation["revision"],
+                                           current_revision=conversation["revision"])
+            if expected_sequence != conversation["revision"]:
+                raise ConversationConflict("conversation sequence changed",
+                                           current_sequence=conversation["revision"],
+                                           current_revision=conversation["revision"])
+            now = _iso(datetime.now(UTC))
+            user_message_id = f"msg_{uuid4().hex}"
+            connection.execute("""INSERT INTO conversation_messages
+                (message_id, owner_id, conversation_id, sequence, role, content, created_at, status)
+                VALUES (?, ?, ?, ?, 'user', ?, ?, 'pending')""",
+                (user_message_id, owner_id, conversation_id, expected_sequence + 1, content, now))
+            connection.execute("""INSERT INTO conversation_turns
+                (owner_id, conversation_id, client_message_id, user_message_id, request_hash,
+                 request_content, timezone, expected_sequence, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                (owner_id, conversation_id, client_message_id, user_message_id, request_hash,
+                 content, timezone, expected_sequence))
+            connection.execute("UPDATE conversations SET revision = revision + 1, updated_at = ? WHERE conversation_id = ?",
+                               (now, conversation_id))
+            row = connection.execute("""SELECT * FROM conversation_turns WHERE owner_id = ?
+                AND conversation_id = ? AND client_message_id = ?""",
+                (owner_id, conversation_id, client_message_id)).fetchone()
+            return self._conversation_turn_from_row(connection, row, expected_sequence + 1)
+
+    def complete_conversation_turn(self, owner_id: str, conversation_id: str, client_message_id: str,
+                                   assistant_content: str, action_results: list[dict],
+                                   draft_refs: list[str]) -> ConversationTurn:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            conversation = self._owned_conversation(connection, owner_id, conversation_id)
+            row = connection.execute("""SELECT * FROM conversation_turns WHERE owner_id = ?
+                AND conversation_id = ? AND client_message_id = ?""",
+                (owner_id, conversation_id, client_message_id)).fetchone()
+            if row is None:
+                raise ConversationNotFound(client_message_id)
+            if row["status"] == "completed":
+                return self._conversation_turn_from_row(connection, row, conversation["revision"])
+            now = _iso(datetime.now(UTC))
+            assistant_id = f"msg_{uuid4().hex}"
+            response = {"assistant_message_id": assistant_id, "content": assistant_content,
+                        "action_results": action_results, "draft_refs": draft_refs}
+            connection.execute("""INSERT INTO conversation_messages
+                (message_id, owner_id, conversation_id, sequence, role, content, created_at, status,
+                 action_results_json, draft_refs_json)
+                VALUES (?, ?, ?, ?, 'assistant', ?, ?, 'completed', ?, ?)""",
+                (assistant_id, owner_id, conversation_id, conversation["revision"] + 1, assistant_content,
+                 now, _json(action_results), _json(draft_refs)))
+            connection.execute("UPDATE conversation_messages SET status = 'completed' WHERE message_id = ?",
+                               (row["user_message_id"],))
+            connection.execute("""UPDATE conversation_turns SET status = 'completed', assistant_message_id = ?,
+                response_json = ? WHERE owner_id = ? AND conversation_id = ? AND client_message_id = ?""",
+                (assistant_id, _json(response), owner_id, conversation_id, client_message_id))
+            connection.execute("UPDATE conversations SET revision = revision + 1, updated_at = ? WHERE conversation_id = ?",
+                               (now, conversation_id))
+            completed = connection.execute("""SELECT * FROM conversation_turns WHERE owner_id = ?
+                AND conversation_id = ? AND client_message_id = ?""",
+                (owner_id, conversation_id, client_message_id)).fetchone()
+            return self._conversation_turn_from_row(connection, completed, conversation["revision"] + 1)
+
+    def list_conversation_messages(self, owner_id: str, conversation_id: str,
+                                   after_sequence: int, limit: int) -> ConversationPage:
+        if after_sequence < 0 or limit < 1:
+            raise ValueError("invalid conversation page bounds")
+        with self._connect() as connection:
+            conversation = self._owned_conversation(connection, owner_id, conversation_id)
+            rows = connection.execute("""SELECT * FROM conversation_messages WHERE owner_id = ?
+                AND conversation_id = ? AND sequence > ? ORDER BY sequence LIMIT ?""",
+                (owner_id, conversation_id, after_sequence, limit + 1)).fetchall()
+            items = [self._conversation_message_from_row(row) for row in rows[:limit]]
+            draft_refs = list(dict.fromkeys(ref for item in items for ref in item.draft_refs))
+            return ConversationPage(items, items[-1].sequence if len(rows) > limit else None,
+                                    conversation["revision"], draft_refs)
 
     def save_draft(self, draft: Draft) -> None:
         with self._connect() as connection:

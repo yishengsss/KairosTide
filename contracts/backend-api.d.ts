@@ -585,6 +585,10 @@ export interface components {
         };
         /** ConversationMessage */
         ConversationMessage: {
+            /** Action Results */
+            action_results?: {
+                [key: string]: unknown;
+            }[];
             /** Content */
             content: string;
             /**
@@ -592,6 +596,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Draft Refs */
+            draft_refs?: string[];
             /** Message Id */
             message_id: string;
             /**
@@ -601,6 +607,11 @@ export interface components {
             role: "user" | "assistant";
             /** Sequence */
             sequence: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
         };
         /**
          * Disposition
@@ -820,6 +831,8 @@ export interface components {
             items: components["schemas"]["ConversationMessage"][];
             /** Next Cursor */
             next_cursor: string | null;
+            /** Revision */
+            revision: number;
         };
         /** MessageRequest */
         MessageRequest: {
@@ -834,15 +847,21 @@ export interface components {
         };
         /** MessageResponse */
         MessageResponse: {
-            answer: components["schemas"]["ConversationMessage"];
+            answer: components["schemas"]["ConversationMessage"] | null;
             /** Draft Refs */
             draft_refs: string[];
             /** Revision */
             revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
             /** Tool Results */
             tool_results: {
                 [key: string]: unknown;
             }[];
+            user_message: components["schemas"]["ConversationMessage"];
         };
         /** Occurrence */
         Occurrence: {
